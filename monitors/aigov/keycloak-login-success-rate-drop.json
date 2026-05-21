@@ -1,0 +1,22 @@
+{
+  "id": 568526,
+  "name": "Keycloak - Login Success Rate Drop (High Error Volume)",
+  "type": "log alert",
+  "query": "logs(\"service:keycloak \\\"org.keycloak.events\\\" type=LOGIN_ERROR env:production\").index(\"*\").rollup(\"count\").last(\"5m\") > 40",
+  "message": "Keycloak login error count has exceeded 40 in the last 5 minutes, indicating the login success rate may have dropped below 95%. This could signal an authentication service issue or an ongoing attack. Please investigate immediately. Environment: production\n@tenant-operations-aaaas4jm3nfumzk46ws4bhiu7i@gsa.org.slack.com",
+  "tags": [],
+  "options": {
+    "thresholds": {
+      "critical": 40,
+      "warning": 20
+    },
+    "enable_logs_sample": false,
+    "notify_audit": false,
+    "on_missing_data": "default",
+    "include_tags": false,
+    "new_host_delay": 300,
+    "groupby_simple_monitor": false,
+    "silenced": {}
+  },
+  "priority": null
+}

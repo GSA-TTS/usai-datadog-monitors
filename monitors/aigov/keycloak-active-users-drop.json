@@ -1,0 +1,22 @@
+{
+  "id": 568529,
+  "name": "Keycloak - Active Users Drop (Login Activity Below Normal)",
+  "type": "log alert",
+  "query": "logs(\"service:keycloak \\\"org.keycloak.events\\\" type=LOGIN env:production\").index(\"*\").rollup(\"count\").last(\"30m\") < 2",
+  "message": "Keycloak login activity has dropped below 2 events in the last 30 minutes. This may indicate an authentication service outage or connectivity issue. Please check the Keycloak service health immediately. Environment: production @tenant-operations-aaaas4jm3nfumzk46ws4bhiu7i@gsa.org.slack.com",
+  "tags": [],
+  "options": {
+    "thresholds": {
+      "critical": 2,
+      "warning": 5
+    },
+    "enable_logs_sample": false,
+    "notify_audit": false,
+    "on_missing_data": "default",
+    "include_tags": false,
+    "new_host_delay": 300,
+    "groupby_simple_monitor": false,
+    "silenced": {}
+  },
+  "priority": null
+}
