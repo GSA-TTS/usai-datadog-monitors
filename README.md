@@ -20,6 +20,15 @@ terraform/          # Terraform IaC to create/update monitors and dashboards
 | aigov | ddog-gov.com | https://fcs-mcaas-aigov.ddog-gov.com |
 | gsai | ddog-gov.com | https://fcs-mcaas-gsai.ddog-gov.com |
 
+## What's Managed Here
+
+Only resources **not** already managed by FCS Terraform (tagged `MCaaS - Managed by Terraform`):
+
+- Keycloak monitors (5 log alerts)
+- Keycloak dashboard
+
+The infra monitors (Daily Log Index Usage, EMERGENCY istio proxy) are managed by FCS and are **not** included.
+
 ## Terraform Usage
 
 ```bash
@@ -34,9 +43,10 @@ terraform plan
 terraform apply
 ```
 
-### Import Existing Resources
+### First Run — Import Existing Resources
 
-To import the monitors and dashboard that already exist in Datadog:
+The Keycloak monitors and dashboard were originally created manually via the Datadog UI.
+Before the first `terraform apply`, import them so Terraform doesn't create duplicates:
 
 ```bash
 terraform import datadog_monitor.keycloak_login_failures_spike 568525
@@ -46,6 +56,8 @@ terraform import datadog_monitor.keycloak_active_users_drop 568529
 terraform import datadog_monitor.keycloak_top_failing_clients_spike 568532
 terraform import datadog_dashboard_json.keycloak g2g-uxq-vqh
 ```
+
+After import, `terraform plan` will show any drift between the live state and the code.
 
 ### Required Permissions
 
