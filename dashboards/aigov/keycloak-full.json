@@ -1,0 +1,1326 @@
+{
+  "title": "Keycloak",
+  "description": "Comprehensive Keycloak authentication dashboard",
+  "layout_type": "ordered",
+  "widgets": [
+    {
+      "id": 1,
+      "definition": {
+        "type": "note",
+        "content": "## Overview",
+        "background_color": "blue",
+        "font_size": "18",
+        "text_align": "left",
+        "show_tick": false
+      },
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "width": 12,
+        "height": 1
+      }
+    },
+    {
+      "id": 2,
+      "definition": {
+        "title": "Total Logins",
+        "type": "query_value",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": true,
+        "precision": 0
+      },
+      "layout": {
+        "x": 0,
+        "y": 1,
+        "width": 3,
+        "height": 2
+      }
+    },
+    {
+      "id": 3,
+      "definition": {
+        "title": "Total Login Failures",
+        "type": "query_value",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN_ERROR $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": true,
+        "precision": 0
+      },
+      "layout": {
+        "x": 3,
+        "y": 1,
+        "width": 3,
+        "height": 2
+      }
+    },
+    {
+      "id": 4,
+      "definition": {
+        "title": "Login Success Rate",
+        "type": "query_value",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "(query1 / (query1 + query2)) * 100"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN $environment"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              },
+              {
+                "name": "query2",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN_ERROR $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": false,
+        "custom_unit": "%",
+        "precision": 1
+      },
+      "layout": {
+        "x": 6,
+        "y": 1,
+        "width": 3,
+        "height": 2
+      }
+    },
+    {
+      "id": 5,
+      "definition": {
+        "title": "Active Users",
+        "type": "query_value",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN $environment"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "cardinality",
+                  "metric": "@usr.name"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": true,
+        "precision": 0
+      },
+      "layout": {
+        "x": 9,
+        "y": 1,
+        "width": 3,
+        "height": 2
+      }
+    },
+    {
+      "id": 6,
+      "definition": {
+        "title": "Login Events Over Time",
+        "show_legend": true,
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "alias": "Logins",
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "green",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          },
+          {
+            "formulas": [
+              {
+                "alias": "Failures",
+                "formula": "query2"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query2",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN_ERROR $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "red",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          }
+        ],
+        "yaxis": {
+          "include_zero": true
+        },
+        "markers": []
+      },
+      "layout": {
+        "x": 0,
+        "y": 3,
+        "width": 12,
+        "height": 3
+      }
+    },
+    {
+      "id": 7,
+      "definition": {
+        "type": "note",
+        "content": "## Logins by Realm",
+        "background_color": "green",
+        "font_size": "18",
+        "text_align": "left",
+        "show_tick": false
+      },
+      "layout": {
+        "x": 0,
+        "y": 6,
+        "width": 12,
+        "height": 1
+      }
+    },
+    {
+      "id": 8,
+      "definition": {
+        "title": "Login Successes by Realm",
+        "type": "toplist",
+        "requests": [
+          {
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@realmName",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar",
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "sort": {
+              "count": 10,
+              "order_by": [
+                {
+                  "type": "formula",
+                  "index": 0,
+                  "order": "desc"
+                }
+              ]
+            }
+          }
+        ],
+        "style": {
+          "display": {
+            "type": "stacked",
+            "legend": "automatic"
+          },
+          "palette": "green"
+        }
+      },
+      "layout": {
+        "x": 0,
+        "y": 7,
+        "width": 4,
+        "height": 6
+      }
+    },
+    {
+      "id": 9,
+      "definition": {
+        "title": "Login Failures by Realm",
+        "type": "toplist",
+        "requests": [
+          {
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN_ERROR $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@realmName",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar",
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "sort": {
+              "count": 10,
+              "order_by": [
+                {
+                  "type": "formula",
+                  "index": 0,
+                  "order": "desc"
+                }
+              ]
+            }
+          }
+        ],
+        "style": {
+          "display": {
+            "type": "stacked",
+            "legend": "automatic"
+          },
+          "palette": "red"
+        }
+      },
+      "layout": {
+        "x": 4,
+        "y": 7,
+        "width": 4,
+        "height": 4
+      }
+    },
+    {
+      "id": 10,
+      "definition": {
+        "title": "Login Activity by Realm Over Time",
+        "show_legend": true,
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" $environment $realm $event_type"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@realmName",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "dog_classic",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          }
+        ],
+        "yaxis": {
+          "include_zero": true
+        },
+        "markers": []
+      },
+      "layout": {
+        "x": 8,
+        "y": 7,
+        "width": 4,
+        "height": 4
+      }
+    },
+    {
+      "id": 11,
+      "definition": {
+        "type": "note",
+        "content": "## Errors & Failures",
+        "background_color": "red",
+        "font_size": "18",
+        "text_align": "left",
+        "show_tick": false
+      },
+      "layout": {
+        "x": 0,
+        "y": 13,
+        "width": 12,
+        "height": 1
+      }
+    },
+    {
+      "id": 12,
+      "definition": {
+        "title": "Top Error Types",
+        "type": "toplist",
+        "requests": [
+          {
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN_ERROR $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@error",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar",
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "sort": {
+              "count": 10,
+              "order_by": [
+                {
+                  "type": "formula",
+                  "index": 0,
+                  "order": "desc"
+                }
+              ]
+            }
+          }
+        ],
+        "style": {
+          "display": {
+            "type": "stacked",
+            "legend": "automatic"
+          },
+          "palette": "red"
+        }
+      },
+      "layout": {
+        "x": 0,
+        "y": 14,
+        "width": 4,
+        "height": 4
+      }
+    },
+    {
+      "id": 13,
+      "definition": {
+        "title": "Login Errors by Type Over Time",
+        "show_legend": true,
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN_ERROR $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@error",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 5
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "warm",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          }
+        ],
+        "yaxis": {
+          "include_zero": true
+        },
+        "markers": []
+      },
+      "layout": {
+        "x": 4,
+        "y": 14,
+        "width": 4,
+        "height": 4
+      }
+    },
+    {
+      "id": 14,
+      "definition": {
+        "title": "Top Failing Clients",
+        "type": "toplist",
+        "requests": [
+          {
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN_ERROR $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@clientId",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar",
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "sort": {
+              "count": 10,
+              "order_by": [
+                {
+                  "type": "formula",
+                  "index": 0,
+                  "order": "desc"
+                }
+              ]
+            }
+          }
+        ],
+        "style": {
+          "display": {
+            "type": "stacked",
+            "legend": "automatic"
+          },
+          "palette": "orange"
+        }
+      },
+      "layout": {
+        "x": 8,
+        "y": 14,
+        "width": 4,
+        "height": 4
+      }
+    },
+    {
+      "id": 4105659732026533,
+      "definition": {
+        "title": "Failure Reasons (Detail)",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "toplist",
+        "requests": [
+          {
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak LOGIN_ERROR $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@reason",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar",
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "sort": {
+              "count": 10,
+              "order_by": [
+                {
+                  "type": "formula",
+                  "index": 0,
+                  "order": "desc"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 18,
+        "width": 4,
+        "height": 5
+      }
+    },
+    {
+      "id": 4152750673670066,
+      "definition": {
+        "title": "Failures by Realm & Error Type",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "toplist",
+        "requests": [
+          {
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak LOGIN_ERROR $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@realmName",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  },
+                  {
+                    "facet": "@error",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar",
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "sort": {
+              "count": 20,
+              "order_by": [
+                {
+                  "type": "formula",
+                  "index": 0,
+                  "order": "desc"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "layout": {
+        "x": 4,
+        "y": 18,
+        "width": 4,
+        "height": 5
+      }
+    },
+    {
+      "id": 8005186652603054,
+      "definition": {
+        "title": "Failure Source IPs (GeoIP)",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "toplist",
+        "requests": [
+          {
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak LOGIN_ERROR $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@network.client.ip",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar",
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "sort": {
+              "count": 10,
+              "order_by": [
+                {
+                  "type": "formula",
+                  "index": 0,
+                  "order": "desc"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "layout": {
+        "x": 8,
+        "y": 18,
+        "width": 4,
+        "height": 5
+      }
+    },
+    {
+      "id": 15,
+      "definition": {
+        "type": "note",
+        "content": "## User Activity",
+        "background_color": "purple",
+        "font_size": "18",
+        "text_align": "left",
+        "show_tick": false
+      },
+      "layout": {
+        "x": 0,
+        "y": 23,
+        "width": 12,
+        "height": 1
+      }
+    },
+    {
+      "id": 16,
+      "definition": {
+        "title": "Top Users with Login Failures",
+        "type": "toplist",
+        "requests": [
+          {
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN_ERROR $environment $realm"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@usr.name",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar",
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "sort": {
+              "count": 10,
+              "order_by": [
+                {
+                  "type": "formula",
+                  "index": 0,
+                  "order": "desc"
+                }
+              ]
+            }
+          }
+        ],
+        "style": {
+          "display": {
+            "type": "stacked",
+            "legend": "automatic"
+          },
+          "palette": "red"
+        }
+      },
+      "layout": {
+        "x": 0,
+        "y": 24,
+        "width": 4,
+        "height": 4
+      }
+    },
+    {
+      "id": 17,
+      "definition": {
+        "title": "Top Source IPs",
+        "type": "toplist",
+        "requests": [
+          {
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" $environment $realm $event_type"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@network.client.ip",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar",
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "sort": {
+              "count": 10,
+              "order_by": [
+                {
+                  "type": "formula",
+                  "index": 0,
+                  "order": "desc"
+                }
+              ]
+            }
+          }
+        ],
+        "style": {
+          "display": {
+            "type": "stacked",
+            "legend": "automatic"
+          },
+          "palette": "purple"
+        }
+      },
+      "layout": {
+        "x": 4,
+        "y": 24,
+        "width": 4,
+        "height": 4
+      }
+    },
+    {
+      "id": 18,
+      "definition": {
+        "title": "Logins by Client Application",
+        "type": "toplist",
+        "requests": [
+          {
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "service:keycloak \"org.keycloak.events\" type=LOGIN $environment"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [
+                  {
+                    "facet": "@clientId",
+                    "sort": {
+                      "aggregation": "count",
+                      "order": "desc"
+                    },
+                    "limit": 10
+                  }
+                ],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar",
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "sort": {
+              "count": 10,
+              "order_by": [
+                {
+                  "type": "formula",
+                  "index": 0,
+                  "order": "desc"
+                }
+              ]
+            }
+          }
+        ],
+        "style": {
+          "display": {
+            "type": "stacked",
+            "legend": "automatic"
+          },
+          "palette": "cool"
+        }
+      },
+      "layout": {
+        "x": 8,
+        "y": 24,
+        "width": 4,
+        "height": 4
+      }
+    },
+    {
+      "id": 19,
+      "definition": {
+        "type": "note",
+        "content": "## Infrastructure",
+        "background_color": "gray",
+        "font_size": "18",
+        "text_align": "left",
+        "show_tick": false
+      },
+      "layout": {
+        "x": 0,
+        "y": 28,
+        "width": 12,
+        "height": 1
+      }
+    },
+    {
+      "id": 20,
+      "definition": {
+        "title": "Keycloak CPU Usage",
+        "show_legend": false,
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "metrics",
+                "query": "avg:kubernetes.cpu.usage.total{app:keycloak} by {pod_name}"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "dog_classic",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "line"
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 29,
+        "width": 4,
+        "height": 3
+      }
+    },
+    {
+      "id": 21,
+      "definition": {
+        "title": "Keycloak Memory Usage",
+        "show_legend": false,
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "metrics",
+                "query": "avg:kubernetes.memory.usage{app:keycloak} by {pod_name}"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "dog_classic",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "line"
+          }
+        ]
+      },
+      "layout": {
+        "x": 4,
+        "y": 29,
+        "width": 4,
+        "height": 3
+      }
+    },
+    {
+      "id": 22,
+      "definition": {
+        "title": "Keycloak Running Pods",
+        "type": "query_value",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "metrics",
+                "query": "sum:kubernetes.pods.running{app:keycloak}",
+                "aggregator": "last"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": true,
+        "precision": 0
+      },
+      "layout": {
+        "x": 8,
+        "y": 29,
+        "width": 2,
+        "height": 3
+      }
+    },
+    {
+      "id": 23,
+      "definition": {
+        "title": "Keycloak Event Log Stream",
+        "requests": [
+          {
+            "response_format": "event_list",
+            "query": {
+              "data_source": "logs_stream",
+              "query_string": "service:keycloak \"org.keycloak.events\" $environment $realm $event_type",
+              "indexes": [],
+              "storage": "hot",
+              "sort": {
+                "order": "desc",
+                "column": "timestamp"
+              }
+            },
+            "columns": [
+              {
+                "field": "status_line",
+                "width": "auto"
+              },
+              {
+                "field": "timestamp",
+                "width": "auto"
+              },
+              {
+                "field": "host",
+                "width": "auto"
+              },
+              {
+                "field": "service",
+                "width": "auto"
+              },
+              {
+                "field": "content",
+                "width": "compact"
+              }
+            ]
+          }
+        ],
+        "type": "list_stream"
+      },
+      "layout": {
+        "x": 0,
+        "y": 32,
+        "width": 12,
+        "height": 4
+      }
+    }
+  ],
+  "template_variables": [
+    {
+      "name": "environment",
+      "prefix": "env",
+      "available_values": [],
+      "default": "production"
+    },
+    {
+      "name": "realm",
+      "prefix": "@realmName",
+      "available_values": [],
+      "default": "*"
+    },
+    {
+      "name": "event_type",
+      "prefix": "@type",
+      "available_values": [
+        "LOGIN",
+        "LOGIN_ERROR",
+        "LOGOUT",
+        "REGISTER",
+        "CODE_TO_TOKEN",
+        "REFRESH_TOKEN",
+        "TOKEN_EXCHANGE",
+        "CLIENT_LOGIN",
+        "CLIENT_LOGIN_ERROR"
+      ],
+      "default": "*"
+    }
+  ],
+  "reflow_type": "fixed",
+  "tags": [
+    "managed-by:terraform",
+    "service:keycloak"
+  ]
+}

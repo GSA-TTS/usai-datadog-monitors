@@ -1,0 +1,37 @@
+{
+  "id": "g2g-uxq-vqh",
+  "title": "Keycloak",
+  "description": "Comprehensive Keycloak authentication dashboard",
+  "layout_type": "ordered",
+  "reflow_type": "fixed",
+  "template_variables": [
+    {
+      "name": "environment",
+      "prefix": "env",
+      "available_values": [],
+      "default": "production"
+    },
+    {
+      "name": "realm",
+      "prefix": "@realmName",
+      "available_values": [],
+      "default": "*"
+    },
+    {
+      "name": "event_type",
+      "prefix": "@type",
+      "available_values": [
+        "LOGIN",
+        "LOGIN_ERROR",
+        "LOGOUT",
+        "REGISTER",
+        "CODE_TO_TOKEN",
+        "REFRESH_TOKEN",
+        "TOKEN_EXCHANGE",
+        "CLIENT_LOGIN",
+        "CLIENT_LOGIN_ERROR"
+      ],
+      "default": "*"
+    }
+  ]
+}
