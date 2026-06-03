@@ -26,8 +26,38 @@ Only resources **not** already managed by FCS Terraform (tagged `MCaaS - Managed
 
 - Keycloak monitors (5 log alerts)
 - Keycloak dashboard
+- Bedrock monitors (4 metric alerts)
+- Azure OpenAI monitors (2 log alerts)
 
 The infra monitors (Daily Log Index Usage, EMERGENCY istio proxy) are managed by FCS and are **not** included.
+
+### Bedrock monitors (`bedrock_monitors.tf`)
+
+Metric alerts on the `aws.bedrock.*` namespace (Datadog AWS integration), grouped
+by `modelid`. Added after the 2026-06-02 GSA incident, where model invocation
+latency (claude-sonnet-4-5, claude-opus-4-5) spiked from ~8s to 88–115s and
+throughput collapsed — with **zero** AWS throttles/errors. Lesson: latency is the
+leading indicator, not throttling.
+
+| Monitor | Signal | Critical |
+|---------|--------|----------|
+| `bedrock_invocation_latency_high` | avg latency per model (the incident's leading signal) | >30s over 10m |
+| `bedrock_invocation_throttles` | AWS rate-limiting (quota hit) | >5 in 5m |
+| `bedrock_server_errors` | 5xx from the model service | >5 in 5m |
+| `bedrock_invocations_drop` | throughput collapse (downstream symptom) | <3 over 15m |
+
+### Azure OpenAI monitors (`azure_monitors.tf`)
+
+Log alerts on the `api` service. The 2026-06-02 incident had a **second, concurrent**
+failure mode the Bedrock metrics couldn't see: Azure OpenAI (GPT models) returned
+HTTP 429 "Too Many Requests" and chat streams were aborted mid-flight. 19 such
+events fired 15:38–18:43 EDT, peaking 16:11–16:30. This signal lives only in the
+app logs, which is why the AWS-side and Azure-side failures were hard to correlate.
+
+| Monitor | Signal | Critical |
+|---------|--------|----------|
+| `azure_openai_throttling` | `"Too Many Requests"` (429) from api service | >3 in 5m |
+| `azure_openai_stream_aborted` | `"Stream aborted mid-flight"` (user-visible symptom) | >3 in 5m |
 
 ## Terraform Usage
 
