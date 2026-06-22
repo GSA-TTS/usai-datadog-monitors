@@ -24,12 +24,14 @@ terraform/          # Terraform IaC to create/update monitors and dashboards
 
 Only resources **not** already managed by FCS Terraform (tagged `MCaaS - Managed by Terraform`):
 
-- Keycloak monitors (5 log alerts)
-- Keycloak dashboard
-- Bedrock monitors (4 metric alerts)
-- Azure OpenAI monitors (2 log alerts)
+- Bedrock monitors (4 metric alerts) — **rolled out per-tenant** to every enabled org
+- Azure OpenAI monitors (2 log alerts) — **rolled out per-tenant** to every enabled org
+- Keycloak monitors (5 log alerts) — **aigov-only**, currently parked (see below)
+- Keycloak dashboard — **aigov-only**, currently parked (see below)
 
-The infra monitors (Daily Log Index Usage, EMERGENCY istio proxy) are managed by FCS and are **not** included.
+The infra monitors (Daily Log Index Usage, EMERGENCY istio proxy), the per-tenant
+Synthetics checks, and the generic API latency/error-rate alerts already present in
+some orgs are **not** managed here and are left untouched.
 
 ### Bedrock monitors (`bedrock_monitors.tf`)
 
@@ -59,24 +61,47 @@ app logs, which is why the AWS-side and Azure-side failures were hard to correla
 | `azure_openai_throttling` | `"Too Many Requests"` (429) from api service | >3 in 5m |
 | `azure_openai_stream_aborted` | `"Stream aborted mid-flight"` (user-visible symptom) | >3 in 5m |
 
+## Multi-Tenant Layout
+
+The model-backend monitors (Bedrock + Azure OpenAI) are rolled out to **every USAi
+tenant org**, each of which is a separate Datadog org under `ddog-gov.com`.
+
+- `modules/model_backend_monitors/` — the 6 model-backend monitors, parameterized
+  by tenant (names prefixed `[tenant]`, tagged `tenant:<slug>`).
+- `tenants.tf` — one block per tenant: an `aws` provider alias (the tenant's SSO
+  profile) → Secrets Manager data sources for that org's DD api/app keys → a
+  `datadog` provider alias → a module call. Providers can't use `for_each`, so each
+  tenant is an explicit block.
+- `tenants.pending.md` — which tenants are enabled vs. blocked (and why).
+
+Keys are read **directly from AWS Secrets Manager at plan time** (secret
+`usai-<tenant>-shared-dd-{api,app}-key` in each tenant account) — there are no
+`TF_VAR_datadog_*` variables. This requires the matching AWS SSO profiles to be
+logged in, and the secrets to carry the `Environment=production` tag so the
+`Tenant_Aigov_Tech_Lead` role can read them.
+
 ## Terraform Usage
 
 ```bash
 cd terraform
 
-# Set credentials (from AWS Secrets Manager or Datadog Org Settings)
-export TF_VAR_datadog_api_key="<32-char hex key from Org Settings → API Keys>"
-export TF_VAR_datadog_app_key="<app key with monitors_write + dashboards_write scope>"
+# Log in to the AWS SSO profiles for the enabled tenants (keys are pulled from
+# each account's Secrets Manager automatically — no env vars needed).
+aws sso login --profile dnfsb   # etc. for each enabled tenant
 
 terraform init
 terraform plan
 terraform apply
 ```
 
-### First Run — Import Existing Resources
+### aigov Keycloak monitors + dashboard
 
-The Keycloak monitors and dashboard were originally created manually via the Datadog UI.
-Before the first `terraform apply`, import them so Terraform doesn't create duplicates:
+The 5 aigov-specific Keycloak log alerts and the Keycloak dashboard live in
+`monitors.tf.aigov-pending` and `dashboard.tf.aigov-pending` (disabled — the
+`.aigov-pending` suffix means Terraform ignores them). They are aigov-only and are
+parked until aigov's secret is readable. See `providers.tf` for re-enable steps,
+including importing the existing resources so Terraform adopts rather than
+duplicates them:
 
 ```bash
 terraform import datadog_monitor.keycloak_login_failures_spike 568525
@@ -87,12 +112,9 @@ terraform import datadog_monitor.keycloak_top_failing_clients_spike 568532
 terraform import datadog_dashboard_json.keycloak g2g-uxq-vqh
 ```
 
-After import, `terraform plan` will show any drift between the live state and the code.
-
 ### Required Permissions
 
-The application key needs these scopes:
-- `monitors_read` / `monitors_write`
-- `dashboards_read` / `dashboards_write`
-
-Or leave the key as "Not Scoped" to inherit all permissions from the user.
+- AWS: `secretsmanager:GetSecretValue` on each tenant's `usai-<tenant>-shared-dd-*`
+  secrets (granted via the `Environment=production` tag).
+- Datadog app key scopes: `monitors_read` / `monitors_write` (and
+  `dashboards_read` / `dashboards_write` for the aigov dashboard).
