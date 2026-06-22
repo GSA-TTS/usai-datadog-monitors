@@ -114,24 +114,41 @@ resource "datadog_monitor" "bedrock_server_errors" {
 
 resource "datadog_monitor" "bedrock_invocations_drop" {
   name = "[${var.tenant}] Bedrock - Invocation Throughput Collapse (active model went quiet)"
-  type = "metric alert"
-  # Downstream symptom: when latency saturates the app, invocations crater
-  # (the 2026-06-02 drop from ~80 to ~2 per 5m). Detects the collapse for a
-  # model that WAS serving traffic. on_missing_data left at default so a model
-  # that legitimately stops being used doesn't false-alarm.
-  query = "sum(last_15m):sum:aws.bedrock.invocations{*} by {modelid}.as_count() < 3"
+  type = "query alert"
+  # Downstream symptom: when latency saturates the app, invocations crater (the
+  # 2026-06-02 drop from ~80 to ~2 per 5m). A STATIC threshold can't express
+  # "collapse" across tenants whose models range from ~50k/hr (embeddings) down
+  # to ~2/hr (sporadic chat) — "< 3 in 15m" is normal for a low-traffic model
+  # and false-fired immediately. So this is an ANOMALY alert per model: it fires
+  # only when a model drops below ITS OWN learned baseline.
+  #
+  #  - anomalies(..., 'agile', 3): agile adapts to level shifts/seasonality;
+  #    bound = 3 std devs.
+  #  - direction='below': only a DROP is interesting, never a spike.
+  #  - count_default_zero='true': quiet gaps count as zero against the baseline
+  #    (so a genuine stall on a previously-busy model registers).
+  # A model that is consistently low-traffic has a low baseline, so staying low
+  # is NOT anomalous and won't page — which is exactly the false positive we hit.
+  query = "avg(last_15m):anomalies(sum:aws.bedrock.invocations{*} by {modelid}.as_count(), 'agile', 3, direction='below', interval=60, alert_window='last_15m', count_default_zero='true', seasonality='hourly') >= 1"
 
   message = <<-EOT
     {{#is_alert}}
-    Bedrock model {{modelid.name}} invocation volume has collapsed to {{value}} over the last 15 minutes. If this model was actively serving traffic, throughput has stalled — often the downstream symptom of the latency/saturation failure mode (see the latency monitor). Correlate with the latency monitor.
+    Bedrock model {{modelid.name}} invocation volume has dropped well below its normal baseline over the last 15 minutes. If this model was actively serving traffic, throughput has stalled — often the downstream symptom of the latency/saturation failure mode (see the latency monitor). Correlate with the latency monitor.
     {{/is_alert}}
 
-    Tenant: ${var.tenant} @ Metric: aws.bedrock.invocations by modelid
+    Tenant: ${var.tenant} @ Metric: aws.bedrock.invocations by modelid (anomaly, direction=below)
     ${var.notification_channel}
   EOT
 
+  # Anomaly monitors threshold on the FRACTION of the alert window that is
+  # anomalous (1.0 = the whole window). Recovery when no longer anomalous.
   monitor_thresholds {
-    critical = 3
+    critical = 1.0
+  }
+
+  monitor_threshold_windows {
+    trigger_window  = "last_15m"
+    recovery_window = "last_15m"
   }
 
   notify_no_data    = false
