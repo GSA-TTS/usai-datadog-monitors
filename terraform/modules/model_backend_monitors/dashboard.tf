@@ -31,7 +31,7 @@ resource "datadog_dashboard" "model_backend" {
     timeseries_definition {
       title = "Bedrock - Avg Invocation Latency by model (ms)"
       request {
-        q            = "avg:aws.bedrock.invocation_latency{*} by {modelid}"
+        q            = "avg:aws.bedrock.invocation_latency{$modelid} by {modelid}"
         display_type = "line"
       }
       # Reference lines for the monitor thresholds (20s warn / 30s crit).
@@ -52,7 +52,7 @@ resource "datadog_dashboard" "model_backend" {
     timeseries_definition {
       title = "Bedrock - Invocation Throughput by model (count)"
       request {
-        q            = "sum:aws.bedrock.invocations{*} by {modelid}.as_count()"
+        q            = "sum:aws.bedrock.invocations{$modelid} by {modelid}.as_count()"
         display_type = "bars"
       }
     }
@@ -62,7 +62,7 @@ resource "datadog_dashboard" "model_backend" {
     timeseries_definition {
       title = "Bedrock - Throttles by model (count)"
       request {
-        q            = "sum:aws.bedrock.invocation_throttles{*} by {modelid}.as_count()"
+        q            = "sum:aws.bedrock.invocation_throttles{$modelid} by {modelid}.as_count()"
         display_type = "bars"
         style {
           palette = "warm"
@@ -75,7 +75,7 @@ resource "datadog_dashboard" "model_backend" {
     timeseries_definition {
       title = "Bedrock - Server Errors (5xx) by model (count)"
       request {
-        q            = "sum:aws.bedrock.invocation_server_errors{*} by {modelid}.as_count()"
+        q            = "sum:aws.bedrock.invocation_server_errors{$modelid} by {modelid}.as_count()"
         display_type = "bars"
         style {
           palette = "warm"
