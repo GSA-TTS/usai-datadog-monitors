@@ -23,15 +23,23 @@ locals {
   # The Datadog `status` tag is UNRELIABLE for these services: log levels are not
   # parsed out of the message body, so INFO/DEBUG lines get indexed as
   # status:error (verified 2026-06-23 — see the console-api JSON-logging fix).
-  # Until that lands everywhere, surface GENUINE errors by full-text matching the
-  # word `error` while EXCLUDING the two big noise sources that also contain it:
-  #   - ddtrace debug span dumps ("finishing span ... error=0 ...") — these are
-  #     DEBUG-level tracer output, not errors; they carry the literal `error=0`.
-  #   - "starting span" — the matching tracer open event.
-  # What survives is real: "error probes Request to probe app failed", stack
-  # traces, and genuine ERROR-level lines. Verified on ftc: the noisy form drops
-  # ~all matches and only true errors (e.g. health-probe failures) remain.
-  genuine_error_query = "env:production service:(${local.app_services_or}) error -\"finishing span\" -\"starting span\" -\"error=0\""
+  # Until that lands everywhere, surface GENUINE APP errors by full-text matching
+  # the word `error` while EXCLUDING the noise sources that also contain it. A
+  # 2-day ftc review found 90,194 "errors" of which exactly 1 was a real app
+  # error — the rest is INFRASTRUCTURE noise the app pods emit via their sidecars
+  # and the dd-trace agent. Exclusions, by source:
+  #   - ddtrace debug span dumps ("finishing span ... error=0", "starting span")
+  #   - istio mTLS cert signing ("failed to sign", citadelclient) — see
+  #     infra_monitors.tf, which ALERTS on this separately
+  #   - envoy xDS stream churn ("warning envoy config ...")
+  #   - health-probe failures (probes) — downstream symptom of the above
+  #   - dd-trace/profiler agent telemetry-send failures (traces to intake /
+  #     Instrumentation Telemetry / ddog_prof_Exporter_send) — also alerted.
+  #     NB: these exclusions are intentionally SPECIFIC (e.g. "traces to intake",
+  #     not a bare "failed to send") so a genuine app error that happens to use a
+  #     common word isn't silently dropped.
+  # What remains is genuine application-level errors.
+  genuine_error_query = "env:production service:(${local.app_services_or}) error -\"finishing span\" -\"starting span\" -\"error=0\" -\"failed to sign\" -citadelclient -envoy -probes -\"traces to intake\" -\"Instrumentation Telemetry\" -ddog_prof_Exporter_send"
 }
 
 resource "datadog_dashboard" "app_health" {
@@ -43,7 +51,7 @@ resource "datadog_dashboard" "app_health" {
   # ---- Section: Errors (log-based) -------------------------------------------
   widget {
     note_definition {
-      content          = "## Errors (logs)\nThe Datadog `status` tag is **unreliable** for these services — log levels aren't parsed from the message body, so INFO/DEBUG lines index as `status:error`. The widgets below instead match the word `error` while **excluding** the two big noise sources that also contain it: ddtrace debug span dumps (`finishing span … error=0`) and their `starting span` events. What remains is genuine — health-probe failures, stack traces, real ERROR lines. The `status` mix is shown last to expose the mislabeling until the source logging fix lands."
+      content          = "## Errors (logs)\nThe Datadog `status` tag is **unreliable** here (levels aren't parsed from the message body, so INFO/DEBUG index as `status:error`). These widgets match the word `error` and **exclude infrastructure noise** that the app pods emit via their sidecars: ddtrace span dumps, istio mTLS cert-signing, envoy xDS churn, health probes, and dd-trace agent telemetry-send failures. A 2-day ftc review found 90,194 raw 'errors' → **1** genuine app error after these exclusions. The istio cert-signing and dd-agent telemetry signals are **alerted separately** (see the infra monitors). What remains below is genuine application-level errors."
       background_color = "red"
       font_size        = "14"
       text_align       = "left"

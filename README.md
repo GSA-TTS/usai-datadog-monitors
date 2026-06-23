@@ -27,6 +27,8 @@ Only resources **not** already managed by FCS Terraform (tagged `MCaaS - Managed
 - Bedrock monitors (3 metric alerts) — **rolled out per-tenant** to every enabled org
 - Azure OpenAI monitors (2 log alerts) — **rolled out per-tenant** to every enabled org
 - Model-backend dashboard (Bedrock + Azure OpenAI triage view) — **rolled out per-tenant** to every enabled org
+- Infrastructure-health monitors (2 log alerts: istio mTLS cert-signing, dd-trace agent telemetry-send) — **rolled out per-tenant** to every enabled org
+- App Health / Edge / Datadog-usage dashboards — **rolled out per-tenant** to every enabled org
 - Keycloak monitors (5 log alerts) — **aigov-only**, currently parked (see below)
 - Keycloak dashboard — **aigov-only**, currently parked (see below)
 
