@@ -224,7 +224,7 @@ resource "datadog_dashboard" "app_health" {
   # ---- Section: Datastore (APM) ----------------------------------------------
   widget {
     note_definition {
-      content          = "## Datastore\nPostgres commit/rollback latency from APM — a common root cause behind app errors and latency spikes."
+      content          = "## Datastore (Postgres)\nRollbacks are only meaningful **relative to commits**. A high rollback *ratio* with near-zero rollback duration and ~no query errors is the normal SQLAlchemy/asyncpg pattern (read-only request sessions close with ROLLBACK, not COMMIT) — NOT failing transactions. Watch instead for: a **ratio spike** paired with **rising query errors** or **rollback duration** (lock contention). The actual failure signal is `query.errors`."
       background_color = "purple"
       font_size        = "14"
       text_align       = "left"
@@ -232,15 +232,57 @@ resource "datadog_dashboard" "app_health" {
     }
   }
 
+  # Commits vs rollbacks side by side — context the bare rollback count lacked.
   widget {
     timeseries_definition {
-      title = "Postgres rollback rate (hits) — elevated rollbacks signal failing transactions"
+      title = "Postgres - commits vs rollbacks (count)"
+      request {
+        q            = "sum:trace.postgres.connection.commit.hits{$service}.as_count()"
+        display_type = "bars"
+      }
       request {
         q            = "sum:trace.postgres.connection.rollback.hits{$service}.as_count()"
         display_type = "bars"
         style {
           palette = "warm"
         }
+      }
+    }
+  }
+
+  # The meaningful signal: rollback ratio %. Baseline here is high (~50-60%,
+  # read-only sessions); a SUDDEN climb toward 100% is what signals trouble.
+  widget {
+    timeseries_definition {
+      title = "Postgres - rollback ratio % (rollbacks / all txns)"
+      request {
+        q            = "sum:trace.postgres.connection.rollback.hits{$service}.as_count() / (sum:trace.postgres.connection.commit.hits{$service}.as_count() + sum:trace.postgres.connection.rollback.hits{$service}.as_count()) * 100"
+        display_type = "line"
+      }
+      marker {
+        value        = "y = 90"
+        display_type = "warning dashed"
+        label        = "90%"
+      }
+    }
+  }
+
+  # The ACTUAL failure signal (distinct from rollbacks): query errors + rollback
+  # duration. Either rising is the real "DB is unhealthy" indicator.
+  widget {
+    timeseries_definition {
+      title = "Postgres - query errors (count) & rollback duration (avg) — the real failure signals"
+      request {
+        q            = "sum:trace.postgres.query.errors{$service}.as_count()"
+        display_type = "bars"
+        style {
+          palette = "warm"
+        }
+      }
+      request {
+        q              = "avg:trace.postgres.connection.rollback.duration{$service}"
+        display_type   = "line"
+        on_right_yaxis = true
       }
     }
   }
