@@ -224,7 +224,7 @@ resource "datadog_dashboard" "app_health" {
   # ---- Section: Datastore (APM) ----------------------------------------------
   widget {
     note_definition {
-      content          = "## Datastore (Postgres)\nRollbacks are only meaningful **relative to commits**. A high rollback *ratio* with near-zero rollback duration and ~no query errors is the normal SQLAlchemy/asyncpg pattern (read-only request sessions close with ROLLBACK, not COMMIT) — NOT failing transactions. Watch instead for: a **ratio spike** paired with **rising query errors** or **rollback duration** (lock contention). The actual failure signal is `query.errors`."
+      content          = "## Datastore (Postgres)\nRollbacks are only meaningful **relative to commits**. A high rollback *ratio* with near-zero rollback duration and ~no query errors is the normal SQLAlchemy/asyncpg pattern (read-only request sessions close with ROLLBACK, not COMMIT) — NOT failing transactions. Watch instead for: a **ratio spike** paired with **rising query errors** or **rollback duration** (lock contention). The actual failure signals are `query.errors` and non-zero rollback duration."
       background_color = "purple"
       font_size        = "14"
       text_align       = "left"
