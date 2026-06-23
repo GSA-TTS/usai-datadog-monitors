@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - `bedrock_invocations_drop` throughput-collapse monitor (all 7 orgs). Anomaly detection can't work on sparse/intermittent model traffic — it wedged in Alert on a model that stopped emitting and re-paged hourly. Redundant with `bedrock_invocation_latency_high`.
 
 ### Added
+- App Health dashboard: show ACTUAL Postgres errors (top error messages + a live stream of failing query spans with @error.message and the SQL), not just a count. Sourced from postgres.query error spans. ftc: 100% are 'psycopg2.OperationalError: SSL SYSCALL error: EOF detected'.
 - App Health dashboard: reworked the Postgres datastore section — commits-vs-rollbacks, rollback ratio %, and query-errors/rollback-duration. Replaces the single rollback-count widget that misleadingly labeled the normal SQLAlchemy read-only ROLLBACK pattern (~58% ratio, 0 errors) as 'failing transactions'.
 - Infra Health dashboard: root-cert **days-until-expiry** countdown widget (color-coded), replacing the meaningless raw-epoch value.
 - Per-tenant Service Mesh & Infra Health dashboard (istio Citadel cert signing, Pilot xDS, control-plane process health + the infra log signals excluded from App Health).
