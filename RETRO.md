@@ -6,7 +6,7 @@ issue or be explicitly closed with a reason.
 | # | Action | Source | GitHub | Status | Notes |
 |---|--------|--------|--------|--------|-------|
 | 1 | Onboard 16 tag-blocked tenants once DD secrets are tagged `Environment=production` | Retro v0.1.0 | #5 | OUT-OF-REPO | Blocked on FCS applying secret tags (account-level IAM, not this repo). Tracked in `terraform/tenants.pending.md`. Gates ROADMAP P1. |
-| 2 | Add self-review checklist item — wire Datadog `template_variable` into query scopes | Retro v0.1.0 (PR #4) | #6 | Open | One-time checklist/CLAUDE.md addition |
+| 2 | Add self-review checklist item — wire Datadog `template_variable` into query scopes | Retro v0.1.0 (PR #4, recurred PR #8) | #6 | Closed | Added "Datadog dashboard conventions" to CLAUDE.md (PR #9) |
 
 ## v0.1.0 — Multi-tenant model-backend monitoring (PRs #1–#4)
 
@@ -93,7 +93,7 @@ validate / fmt commands) in PR #3.
 ### Open Items
 
 - [ ] Onboard 16 tag-blocked tenants — Action Tracker #1 (GitHub #5) — OUT-OF-REPO
-- [ ] Datadog template_variable self-review checklist item — Action Tracker #2 (GitHub #6)
+- [x] Datadog template_variable self-review checklist item — Action Tracker #2 (GitHub #6) — resolved: CLAUDE.md "Datadog dashboard conventions" (PR #9)
 - [x] Validate Bedrock anomaly monitor baseline — ROADMAP P3 — resolved in v0.1.1: the anomaly monitor wedged in Alert on a sparse model (ftc opus-4-8) that stopped emitting and re-paged hourly. Anomaly detection can't work on intermittent near-zero series, so `bedrock_invocations_drop` was removed entirely (redundant with the latency monitor).
 
 <!-- Milestone retro entry template:
