@@ -317,8 +317,11 @@ resource "datadog_dashboard" "app_health" {
               }
             }
             # operation_name scopes to DB query spans; $service follows the picker.
+            # NB: the template var has prefix="service", so $service already
+            # expands to "service:<val>" — use it BARE, not "service:$service"
+            # (which expands to the empty "service:service:*").
             search {
-              query = "service:$service operation_name:postgres.query status:error"
+              query = "$service operation_name:postgres.query status:error"
             }
           }
         }
@@ -337,8 +340,9 @@ resource "datadog_dashboard" "app_health" {
       request {
         response_format = "event_list"
         query {
-          data_source  = "trace_stream"
-          query_string = "service:$service operation_name:postgres.query status:error"
+          data_source = "trace_stream"
+          # $service already carries the "service:" prefix (see toplist note above).
+          query_string = "$service operation_name:postgres.query status:error"
           indexes      = []
         }
         columns {
