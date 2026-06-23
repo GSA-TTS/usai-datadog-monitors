@@ -26,3 +26,7 @@ Lessons baked in from PRs #4 and #8 (self-review checklist for any dashboard wor
   span-error metrics (`trace.*.request.errors` are empty); edge latency comes from
   `trace.envoy.proxy.duration`, not `aws.applicationelb.target_response_time`
   (also empty). Probe with the metrics/query API before building.
+- **`trace.*.request.duration` reads in milliseconds** despite the metric metadata
+  declaring `unit: second` — live ingress values are ~200–300, which are ms, not
+  hundreds of seconds. Label latency widgets "ms" and set SLO markers in ms
+  (e.g. `y = 1000` for 1s).

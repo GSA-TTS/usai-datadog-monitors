@@ -135,19 +135,19 @@ resource "datadog_dashboard" "app_health" {
 
   widget {
     timeseries_definition {
-      title = "Avg request latency by service (fastapi, seconds)"
+      title = "Avg request latency by service (fastapi, ms)"
       request {
         q            = "avg:trace.fastapi.request.duration{$service} by {service}"
         display_type = "line"
       }
-      # 1s warning / 3s critical reference lines for a rough SLO eyeball.
+      # 1s warning / 3s critical reference lines (duration is reported in ms here).
       marker {
-        value        = "y = 1"
+        value        = "y = 1000"
         display_type = "warning dashed"
         label        = "1s"
       }
       marker {
-        value        = "y = 3"
+        value        = "y = 3000"
         display_type = "error dashed"
         label        = "3s"
       }
@@ -156,7 +156,7 @@ resource "datadog_dashboard" "app_health" {
 
   widget {
     timeseries_definition {
-      title = "Chat aiohttp request latency (avg, seconds)"
+      title = "Chat aiohttp request latency (avg, ms)"
       request {
         q            = "avg:trace.aiohttp.request.duration{service:chat}"
         display_type = "line"
