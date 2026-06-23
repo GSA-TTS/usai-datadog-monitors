@@ -5,9 +5,10 @@
 # chat, api, console-api, console-pipeline-api, pipelines, embedding-proxy.
 #
 # Signal sourcing (verified against live ftc data 2026-06-23):
-#   - ERRORS come from LOGS (status:error by service). APM span-error metrics
-#     (trace.*.request.errors) are not populated in these orgs, so log status
-#     is the authoritative error signal — same mechanism as the Azure monitors.
+#   - ERRORS come from LOGS, matched by message CONTENT (genuine_error_query),
+#     NOT the status tag — log levels aren't parsed from the message body so
+#     status:error is dominated by mislabeled INFO/DEBUG. APM span-error metrics
+#     (trace.*.request.errors) are also not populated in these orgs.
 #   - LATENCY / THROUGHPUT come from APM (trace.fastapi/aiohttp.request.*).
 #     fastapi covers chat/pipelines/embedding-proxy; chat also emits aiohttp.
 #
@@ -16,6 +17,21 @@
 locals {
   # USAi user-facing services (log `service` facet values).
   usai_app_services = "chat,api,console-api,console-pipeline-api,pipelines,embedding-proxy"
+
+  app_services_or = replace(local.usai_app_services, ",", " OR ")
+
+  # The Datadog `status` tag is UNRELIABLE for these services: log levels are not
+  # parsed out of the message body, so INFO/DEBUG lines get indexed as
+  # status:error (verified 2026-06-23 — see the console-api JSON-logging fix).
+  # Until that lands everywhere, surface GENUINE errors by full-text matching the
+  # word `error` while EXCLUDING the two big noise sources that also contain it:
+  #   - ddtrace debug span dumps ("finishing span ... error=0 ...") — these are
+  #     DEBUG-level tracer output, not errors; they carry the literal `error=0`.
+  #   - "starting span" — the matching tracer open event.
+  # What survives is real: "error probes Request to probe app failed", stack
+  # traces, and genuine ERROR-level lines. Verified on ftc: the noisy form drops
+  # ~all matches and only true errors (e.g. health-probe failures) remain.
+  genuine_error_query = "env:production service:(${local.app_services_or}) error -\"finishing span\" -\"starting span\" -\"error=0\""
 }
 
 resource "datadog_dashboard" "app_health" {
@@ -27,7 +43,7 @@ resource "datadog_dashboard" "app_health" {
   # ---- Section: Errors (log-based) -------------------------------------------
   widget {
     note_definition {
-      content          = "## Errors (logs)\n`status:error` across the USAi app services. APM span-error metrics are not populated in these orgs, so log status is the authoritative error signal."
+      content          = "## Errors (logs)\nThe Datadog `status` tag is **unreliable** for these services — log levels aren't parsed from the message body, so INFO/DEBUG lines index as `status:error`. The widgets below instead match the word `error` while **excluding** the two big noise sources that also contain it: ddtrace debug span dumps (`finishing span … error=0`) and their `starting span` events. What remains is genuine — health-probe failures, stack traces, real ERROR lines. The `status` mix is shown last to expose the mislabeling until the source logging fix lands."
       background_color = "red"
       font_size        = "14"
       text_align       = "left"
@@ -35,15 +51,16 @@ resource "datadog_dashboard" "app_health" {
     }
   }
 
-  # Total error-log volume over time, split by service — the headline error view.
+  # Genuine errors over time, split by service — the headline error view, by
+  # CONTENT match rather than the unreliable status tag.
   widget {
     timeseries_definition {
-      title = "Error logs by service (status:error)"
+      title = "Genuine errors by service (content match)"
       request {
         display_type = "bars"
         log_query {
           index        = "*"
-          search_query = "env:production status:error service:(${replace(local.usai_app_services, ",", " OR ")})"
+          search_query = local.genuine_error_query
           compute_query {
             aggregation = "count"
           }
@@ -63,14 +80,20 @@ resource "datadog_dashboard" "app_health" {
     }
   }
 
-  # Top-line error count per service (toplist) for the last window.
+  # Which error MESSAGE patterns are most common — answers "count by error".
+  # error.message is Datadog's standard attribute; falls back to grouping nothing
+  # Ranked error count by service. NOTE: grouping by an error-message/type facet
+  # (e.g. @error.message) is NOT possible yet — these services emit no structured
+  # log attributes, so there is nothing to group on but `service`. Once the source
+  # JSON-logging fix lands (console-api etc.), add an @error.kind / @error.message
+  # toplist here for true "count by error type".
   widget {
     toplist_definition {
-      title = "Top error-log producers (USAi services)"
+      title = "Top error-producing services (genuine errors)"
       request {
         log_query {
           index        = "*"
-          search_query = "env:production status:error service:(${replace(local.usai_app_services, ",", " OR ")})"
+          search_query = local.genuine_error_query
           compute_query {
             aggregation = "count"
           }
@@ -82,6 +105,34 @@ resource "datadog_dashboard" "app_health" {
               order       = "desc"
             }
           }
+        }
+      }
+    }
+  }
+
+  # Live stream of the actual genuine-error log lines — the "show me the details"
+  # widget. Lets an on-call read the real messages without leaving the dashboard.
+  widget {
+    list_stream_definition {
+      title = "Recent error logs (live)"
+      request {
+        response_format = "event_list"
+        query {
+          data_source  = "logs_stream"
+          query_string = local.genuine_error_query
+          indexes      = ["*"]
+        }
+        columns {
+          field = "timestamp"
+          width = "auto"
+        }
+        columns {
+          field = "service"
+          width = "auto"
+        }
+        columns {
+          field = "content"
+          width = "auto"
         }
       }
     }
