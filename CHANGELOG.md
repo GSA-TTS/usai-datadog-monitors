@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - `bedrock_invocations_drop` throughput-collapse monitor (all 7 orgs). Anomaly detection can't work on sparse/intermittent model traffic — it wedged in Alert on a model that stopped emitting and re-paged hourly. Redundant with `bedrock_invocation_latency_high`.
 
 ### Added
+- Per-tenant Datadog Ingest & Usage dashboard (log/APM ingest by service, hosts/containers, synthetics runs) to catch runaway log producers before they become a billing problem.
 - Per-tenant Edge & Request Health dashboard (ALB status codes + istio ingress-gateway hits/errors/latency), rolled out to the 7 enabled orgs.
 - Per-tenant USAi App Health & Errors dashboard (log-based errors + APM latency/throughput for chat/api/console/pipelines/embedding-proxy), rolled out to the 7 enabled orgs.
 - Per-tenant model-backend triage dashboard (Bedrock metrics + Azure OpenAI log signals), rolled out to the 7 enabled tenant orgs.
