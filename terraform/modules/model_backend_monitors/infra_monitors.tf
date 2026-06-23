@@ -81,3 +81,44 @@ resource "datadog_monitor" "dd_agent_telemetry_send_failures" {
 
   tags = concat(local.base_tags, ["layer:datadog-agent", "signal:telemetry-drop"])
 }
+
+# DocumentDB (Mongo-compatible) reachability — DNS/connection failures.
+# console-api's health check logs "MongoDB health check failed: <docdb endpoint>
+# ... [Errno -3] Try again" when it can't RESOLVE the DocumentDB cluster endpoint
+# (EAI_AGAIN — temporary DNS failure), or otherwise can't connect within the 20s
+# timeout. Baseline is ~0 (2 events over the 7 days to 2026-06-23), and the DB
+# itself is healthy (CPU ~14%, cache 100%, connections nominal) — so this is a
+# DNS/network-reachability signal (CoreDNS pressure, Route53/DocDB DNS hiccup, or
+# a cluster failover), not a database-load problem. Threshold is low because any
+# sustained recurrence above the ~0 baseline is worth a look.
+resource "datadog_monitor" "docdb_health_check_failing" {
+  name = "[${var.tenant}] DocumentDB - health check failing (DNS / reachability)"
+  type = "log alert"
+
+  query = "logs(\"env:production service:console-api \\\"MongoDB health check failed\\\"\").index(\"*\").rollup(\"count\").last(\"10m\") > 5"
+
+  message = <<-EOT
+    {{#is_alert}}
+    console-api's DocumentDB health check is failing — {{value}} failures in the last 10 minutes. The usual cause is the DocumentDB cluster endpoint failing to resolve (`[Errno -3] Try again` / EAI_AGAIN) or not connecting within the 20s timeout.
+
+    The DB itself is typically healthy here, so suspect DNS/network: in-cluster CoreDNS capacity, the Route53 record for the DocDB endpoint, or a cluster failover/maintenance window. Correlate with the DocumentDB widgets on the Service Mesh & Infra Health dashboard (connections / CPU) to rule out a real cluster issue.
+    {{/is_alert}}
+    {{#is_warning}}
+    DocumentDB health check failing intermittently ({{value}} in 10m). Watch for escalation to a sustained outage.
+    {{/is_warning}}
+
+    Tenant: ${var.tenant} @ Query: service:console-api "MongoDB health check failed"
+    ${var.notification_channel}
+  EOT
+
+  monitor_thresholds {
+    critical = 5
+    warning  = 1
+  }
+
+  include_tags    = false
+  notify_audit    = false
+  on_missing_data = "default"
+
+  tags = concat(local.base_tags, ["layer:documentdb", "signal:dns-reachability"])
+}
