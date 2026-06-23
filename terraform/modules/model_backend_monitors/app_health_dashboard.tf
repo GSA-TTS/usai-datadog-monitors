@@ -287,6 +287,76 @@ resource "datadog_dashboard" "app_health" {
     }
   }
 
+  # The ACTUAL pg errors, not just a count. The error detail lives on the
+  # postgres.query SPANS (status:error) — @error.message / @error.type /
+  # @db.statement — so these two widgets read from spans, not the trace.* metrics.
+  # Verified on ftc: 100% of pg errors are "psycopg2.OperationalError: SSL SYSCALL
+  # error: EOF detected" — Postgres connections being severed at the SSL layer.
+  widget {
+    toplist_definition {
+      title = "Postgres - top error messages (what's actually failing)"
+      request {
+        query {
+          event_query {
+            data_source = "spans"
+            name        = "pg_errors"
+            indexes     = []
+            compute {
+              aggregation = "count"
+            }
+            group_by {
+              facet = "@error.message"
+              limit = 10
+              sort {
+                order       = "desc"
+                aggregation = "count"
+              }
+            }
+            # operation_name scopes to DB query spans; $service follows the picker.
+            search {
+              query = "service:$service operation_name:postgres.query status:error"
+            }
+          }
+        }
+        formula {
+          formula_expression = "pg_errors"
+        }
+      }
+    }
+  }
+
+  # Live stream of the actual failing query spans — error message, the SQL
+  # statement, and the DB instance, so an on-call sees what failed and where.
+  widget {
+    list_stream_definition {
+      title = "Postgres - recent failing queries (live)"
+      request {
+        response_format = "event_list"
+        query {
+          data_source  = "trace_stream"
+          query_string = "service:$service operation_name:postgres.query status:error"
+          indexes      = []
+        }
+        columns {
+          field = "timestamp"
+          width = "auto"
+        }
+        columns {
+          field = "service"
+          width = "auto"
+        }
+        columns {
+          field = "@error.message"
+          width = "auto"
+        }
+        columns {
+          field = "@db.statement"
+          width = "auto"
+        }
+      }
+    }
+  }
+
   template_variable {
     name             = "service"
     prefix           = "service"
