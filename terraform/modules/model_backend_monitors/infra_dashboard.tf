@@ -82,15 +82,15 @@ resource "datadog_dashboard" "infra_health" {
     }
   }
 
-  widget {
-    query_value_definition {
-      title = "Root cert expiry (timestamp — watch it never approaches now)"
-      request {
-        q          = "max:istio.citadel.server.root_cert_expiry_timestamp{*}"
-        aggregator = "last"
-      }
-    }
-  }
+  # NOTE: a "root cert expiry" query_value was intentionally omitted. The
+  # istio.citadel.server.root_cert_expiry_timestamp metric is a Unix epoch value
+  # (mislabeled unit:second) — e.g. ~2086827150 = 2036-02-17, ~3,500 days out for
+  # a 10-year root cert — so a raw query_value renders a meaningless ~2.09e9
+  # number, and the root cert is not the operational signal anyway (the incident
+  # was WORKLOAD cert signing, shown above). A days-until-expiry widget would need
+  # now() in the query, which Datadog formulas don't provide; if root-cert expiry
+  # monitoring is wanted later, do it as a dedicated monitor with a relative
+  # threshold rather than a dashboard number.
 
   # ---- Section: istio Pilot — xDS config distribution ------------------------
   widget {
@@ -117,7 +117,9 @@ resource "datadog_dashboard" "infra_health" {
     timeseries_definition {
       title = "Pilot - proxy convergence time (avg) — rising = sidecars slow to get config"
       request {
-        q            = "avg:istio.pilot.proxy_convergence_time.sum{*} / avg:istio.pilot.proxy_convergence_time.count{*}"
+        # Time-weighted average across all istiod replicas: sum(sum)/sum(count).
+        # (avg/avg would distort once there is more than one control-plane pod.)
+        q            = "sum:istio.pilot.proxy_convergence_time.sum{*} / sum:istio.pilot.proxy_convergence_time.count{*}"
         display_type = "line"
       }
     }
@@ -166,8 +168,10 @@ resource "datadog_dashboard" "infra_health" {
       request {
         display_type = "bars"
         log_query {
-          index        = "*"
-          search_query = "env:production service:(chat OR api OR console-api OR console-pipeline-api OR pipelines OR embedding-proxy) (\"traces to intake\" OR \"Instrumentation Telemetry\" OR ddog_prof_Exporter_send)"
+          index = "*"
+          # Kept byte-identical to the dd_agent_telemetry_send_failures monitor
+          # query (infra_monitors.tf) so the dashboard shows exactly what alerts.
+          search_query = "env:production service:(chat OR api OR console-api OR console-pipeline-api OR pipelines OR embedding-proxy) (\"dropping\" \"traces to intake\" OR ddog_prof_Exporter_send OR \"Instrumentation Telemetry\")"
           compute_query {
             aggregation = "count"
           }
