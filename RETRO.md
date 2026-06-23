@@ -94,7 +94,7 @@ validate / fmt commands) in PR #3.
 
 - [ ] Onboard 16 tag-blocked tenants — Action Tracker #1 (GitHub #5) — OUT-OF-REPO
 - [ ] Datadog template_variable self-review checklist item — Action Tracker #2 (GitHub #6)
-- [ ] Validate Bedrock anomaly monitor baseline — ROADMAP P3 (not yet a tracker row; revisit after baseline warm-up)
+- [x] Validate Bedrock anomaly monitor baseline — ROADMAP P3 — resolved in v0.1.1: the anomaly monitor wedged in Alert on a sparse model (ftc opus-4-8) that stopped emitting and re-paged hourly. Anomaly detection can't work on intermittent near-zero series, so `bedrock_invocations_drop` was removed entirely (redundant with the latency monitor).
 
 <!-- Milestone retro entry template:
 ## <milestone> — <date>

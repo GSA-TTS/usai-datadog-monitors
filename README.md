@@ -24,7 +24,7 @@ terraform/          # Terraform IaC to create/update monitors and dashboards
 
 Only resources **not** already managed by FCS Terraform (tagged `MCaaS - Managed by Terraform`):
 
-- Bedrock monitors (4 metric alerts) — **rolled out per-tenant** to every enabled org
+- Bedrock monitors (3 metric alerts) — **rolled out per-tenant** to every enabled org
 - Azure OpenAI monitors (2 log alerts) — **rolled out per-tenant** to every enabled org
 - Model-backend dashboard (Bedrock + Azure OpenAI triage view) — **rolled out per-tenant** to every enabled org
 - Keycloak monitors (5 log alerts) — **aigov-only**, currently parked (see below)
@@ -47,7 +47,12 @@ leading indicator, not throttling.
 | `bedrock_invocation_latency_high` | avg latency per model (the incident's leading signal) | >30s over 10m |
 | `bedrock_invocation_throttles` | AWS rate-limiting (quota hit) | >5 in 5m |
 | `bedrock_server_errors` | 5xx from the model service | >5 in 5m |
-| `bedrock_invocations_drop` | throughput collapse (downstream symptom) | <3 over 15m |
+
+> A `bedrock_invocations_drop` "throughput collapse" monitor was tried and removed
+> (2026-06-23). Neither a static threshold nor a per-model anomaly alert worked
+> across tenants with intermittent low-traffic models — it wedged in Alert on a
+> model that stopped emitting and re-paged hourly. The latency monitor catches the
+> same saturation failure upstream and is volume-independent.
 
 ### Azure OpenAI monitors (`azure_monitors.tf`)
 
