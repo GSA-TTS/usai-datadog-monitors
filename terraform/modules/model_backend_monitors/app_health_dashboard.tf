@@ -80,8 +80,6 @@ resource "datadog_dashboard" "app_health" {
     }
   }
 
-  # Which error MESSAGE patterns are most common — answers "count by error".
-  # error.message is Datadog's standard attribute; falls back to grouping nothing
   # Ranked error count by service. NOTE: grouping by an error-message/type facet
   # (e.g. @error.message) is NOT possible yet — these services emit no structured
   # log attributes, so there is nothing to group on but `service`. Once the source
