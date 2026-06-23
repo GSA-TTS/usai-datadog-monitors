@@ -43,7 +43,7 @@ resource "datadog_dashboard" "app_health" {
         display_type = "bars"
         log_query {
           index        = "*"
-          search_query = "status:error service:(${replace(local.usai_app_services, ",", " OR ")})"
+          search_query = "env:production status:error service:(${replace(local.usai_app_services, ",", " OR ")})"
           compute_query {
             aggregation = "count"
           }
@@ -70,7 +70,7 @@ resource "datadog_dashboard" "app_health" {
       request {
         log_query {
           index        = "*"
-          search_query = "status:error service:(${replace(local.usai_app_services, ",", " OR ")})"
+          search_query = "env:production status:error service:(${replace(local.usai_app_services, ",", " OR ")})"
           compute_query {
             aggregation = "count"
           }
@@ -95,7 +95,7 @@ resource "datadog_dashboard" "app_health" {
         display_type = "area"
         log_query {
           index        = "*"
-          search_query = "service:(${replace(local.usai_app_services, ",", " OR ")})"
+          search_query = "env:production service:(${replace(local.usai_app_services, ",", " OR ")})"
           compute_query {
             aggregation = "count"
           }
@@ -127,7 +127,7 @@ resource "datadog_dashboard" "app_health" {
     timeseries_definition {
       title = "Request throughput by service (fastapi, hits)"
       request {
-        q            = "sum:trace.fastapi.request.hits{*} by {service}.as_count()"
+        q            = "sum:trace.fastapi.request.hits{$service} by {service}.as_count()"
         display_type = "bars"
       }
     }
@@ -137,7 +137,7 @@ resource "datadog_dashboard" "app_health" {
     timeseries_definition {
       title = "Avg request latency by service (fastapi, seconds)"
       request {
-        q            = "avg:trace.fastapi.request.duration{*} by {service}"
+        q            = "avg:trace.fastapi.request.duration{$service} by {service}"
         display_type = "line"
       }
       # 1s warning / 3s critical reference lines for a rough SLO eyeball.
@@ -179,7 +179,7 @@ resource "datadog_dashboard" "app_health" {
     timeseries_definition {
       title = "Postgres rollback rate (hits) — elevated rollbacks signal failing transactions"
       request {
-        q            = "sum:trace.postgres.connection.rollback.hits{*}.as_count()"
+        q            = "sum:trace.postgres.connection.rollback.hits{$service}.as_count()"
         display_type = "bars"
         style {
           palette = "warm"
