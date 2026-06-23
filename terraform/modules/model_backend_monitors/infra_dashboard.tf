@@ -82,15 +82,41 @@ resource "datadog_dashboard" "infra_health" {
     }
   }
 
-  # NOTE: a "root cert expiry" query_value was intentionally omitted. The
-  # istio.citadel.server.root_cert_expiry_timestamp metric is a Unix epoch value
-  # (mislabeled unit:second) — e.g. ~2086827150 = 2036-02-17, ~3,500 days out for
-  # a 10-year root cert — so a raw query_value renders a meaningless ~2.09e9
-  # number, and the root cert is not the operational signal anyway (the incident
-  # was WORKLOAD cert signing, shown above). A days-until-expiry widget would need
-  # now() in the query, which Datadog formulas don't provide; if root-cert expiry
-  # monitoring is wanted later, do it as a dedicated monitor with a relative
-  # threshold rather than a dashboard number.
+  # Root cert: DAYS until expiry, not the raw epoch. The metric
+  # (istio.citadel.server.root_cert_expiry_timestamp) is an absolute Unix epoch
+  # (mislabeled unit:second), so showing it raw is meaningless. Datadog widget
+  # queries have no now(), so the countdown subtracts the baked-in var.dashboard_epoch
+  # anchor and divides by 86400 -> days remaining. The value drifts slowly as
+  # wall-clock passes the anchor (over-counts), so re-stamp dashboard_epoch on
+  # apply; fine for a multi-year root cert. Operationally the WORKLOAD cert
+  # signing above is the live signal — this is a slow-burn "is the root cert
+  # approaching expiry" check.
+  widget {
+    query_value_definition {
+      title       = "Root cert — days until expiry (approx; re-stamp dashboard_epoch)"
+      precision   = 0
+      custom_unit = "days"
+      request {
+        q          = "(max:istio.citadel.server.root_cert_expiry_timestamp{*} - ${var.dashboard_epoch}) / 86400"
+        aggregator = "last"
+        conditional_formats {
+          comparator = "<"
+          value      = 30
+          palette    = "white_on_red"
+        }
+        conditional_formats {
+          comparator = "<"
+          value      = 90
+          palette    = "white_on_yellow"
+        }
+        conditional_formats {
+          comparator = ">="
+          value      = 90
+          palette    = "white_on_green"
+        }
+      }
+    }
+  }
 
   # ---- Section: istio Pilot — xDS config distribution ------------------------
   widget {
