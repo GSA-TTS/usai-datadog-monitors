@@ -224,7 +224,7 @@ resource "datadog_dashboard" "app_health" {
   # ---- Section: Datastore (APM) ----------------------------------------------
   widget {
     note_definition {
-      content          = "## Datastore (Postgres)\nRollbacks are only meaningful **relative to commits**. A high rollback *ratio* with near-zero rollback duration and ~no query errors is the normal SQLAlchemy/asyncpg pattern (read-only request sessions close with ROLLBACK, not COMMIT) — NOT failing transactions. Watch instead for: a **ratio spike** paired with **rising query errors** or **rollback duration** (lock contention). The actual failure signals are `query.errors` and non-zero rollback duration."
+      content          = "## Datastore (Postgres)\nRollbacks are only meaningful **relative to commits**. A high rollback *ratio* with near-zero rollback duration and ~no query errors is the normal SQLAlchemy/asyncpg pattern (read-only request sessions close with ROLLBACK, not COMMIT) — NOT failing transactions. Watch instead for: a **ratio spike** paired with **rising query errors** or **rollback duration** (lock contention). The actual failure signals are `query.errors` and non-zero rollback duration.\n\n**Note:** pg errors are sparse (a handful per day), so the error widgets below look empty on a short window — **set the dashboard time range to 1d or 1w** to see them."
       background_color = "purple"
       font_size        = "14"
       text_align       = "left"
@@ -294,6 +294,10 @@ resource "datadog_dashboard" "app_health" {
   # error: EOF detected" — Postgres connections being severed at the SSL layer.
   widget {
     toplist_definition {
+      # Postgres errors are sparse (~18/day in ftc), so this looks empty on a
+      # short window — widen the dashboard time range to 1d/1w (see section note).
+      # NB: per-widget live_span is not honored by the v1 dashboard API for any
+      # widget type here, so the timeframe follows the dashboard's global picker.
       title = "Postgres - top error messages (what's actually failing)"
       request {
         query {
