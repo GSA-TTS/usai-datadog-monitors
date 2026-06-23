@@ -33,10 +33,13 @@ locals {
   #     infra_monitors.tf, which ALERTS on this separately
   #   - envoy xDS stream churn ("warning envoy config ...")
   #   - health-probe failures (probes) — downstream symptom of the above
-  #   - dd-trace/profiler agent telemetry-send failures (failed to send / dropping
-  #     / Instrumentation Telemetry / ddog_prof_Exporter_send) — also alerted
+  #   - dd-trace/profiler agent telemetry-send failures (traces to intake /
+  #     Instrumentation Telemetry / ddog_prof_Exporter_send) — also alerted.
+  #     NB: these exclusions are intentionally SPECIFIC (e.g. "traces to intake",
+  #     not a bare "failed to send") so a genuine app error that happens to use a
+  #     common word isn't silently dropped.
   # What remains is genuine application-level errors.
-  genuine_error_query = "env:production service:(${local.app_services_or}) error -\"finishing span\" -\"starting span\" -\"error=0\" -\"failed to sign\" -citadelclient -envoy -probes -\"failed to send\" -\"Instrumentation Telemetry\" -ddog_prof_Exporter_send"
+  genuine_error_query = "env:production service:(${local.app_services_or}) error -\"finishing span\" -\"starting span\" -\"error=0\" -\"failed to sign\" -citadelclient -envoy -probes -\"traces to intake\" -\"Instrumentation Telemetry\" -ddog_prof_Exporter_send"
 }
 
 resource "datadog_dashboard" "app_health" {
