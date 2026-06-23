@@ -216,4 +216,52 @@ resource "datadog_dashboard" "infra_health" {
       }
     }
   }
+
+  # ---- Section: DocumentDB (Mongo-compatible) --------------------------------
+  widget {
+    note_definition {
+      content          = "## DocumentDB (MongoDB)\nconsole-api's backing store. The **health-check failures** below are the alerted signal (infra_monitors.tf) — usually DNS/reachability (`[Errno -3] Try again` resolving the cluster endpoint), not DB load. The **cluster metrics** are here to disambiguate: if connections/CPU look normal during a failure spike, it's DNS/network, not the database."
+      background_color = "purple"
+      font_size        = "14"
+      text_align       = "left"
+      show_tick        = false
+    }
+  }
+
+  # The alerted signal: health-check failure logs. Byte-identical to the
+  # docdb_health_check_failing monitor query so the dashboard shows what alerts.
+  widget {
+    timeseries_definition {
+      title = "DocumentDB - health check failures (logs) — alerted in infra_monitors.tf"
+      request {
+        display_type = "bars"
+        log_query {
+          index        = "*"
+          search_query = "env:production service:console-api \"MongoDB health check failed\""
+          compute_query {
+            aggregation = "count"
+          }
+        }
+        style {
+          palette = "warm"
+        }
+      }
+    }
+  }
+
+  # Cluster health, to disambiguate DNS/network from a real DB problem.
+  widget {
+    timeseries_definition {
+      title = "DocumentDB - connections & CPU (cluster health)"
+      request {
+        q            = "avg:aws.docdb.database_connections{*}"
+        display_type = "line"
+      }
+      request {
+        q              = "avg:aws.docdb.cpuutilization{*}"
+        display_type   = "line"
+        on_right_yaxis = true
+      }
+    }
+  }
 }
