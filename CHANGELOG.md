@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - `bedrock_invocations_drop` throughput-collapse monitor (all 7 orgs). Anomaly detection can't work on sparse/intermittent model traffic — it wedged in Alert on a model that stopped emitting and re-paged hourly. Redundant with `bedrock_invocation_latency_high`.
 
 ### Added
+- Per-tenant Service Mesh & Infra Health dashboard (istio Citadel cert signing, Pilot xDS, control-plane process health + the infra log signals excluded from App Health).
 - Infrastructure-health alerts (per tenant): istio mTLS cert-signing failures and dd-trace agent telemetry-send failures — surfaced by a 2-day ftc error review that traced an unalerted istio control-plane incident.
 - App Health dashboard: tightened the genuine-error filter to exclude istio/envoy/dd-agent infra noise (90,194 raw 'errors' → 1 real app error over 2 days in ftc).
 - App Health dashboard: surface genuine errors by content (excluding ddtrace span-dump noise), top error-producing services, and a live error-log stream — replacing the unreliable status:error widgets.
