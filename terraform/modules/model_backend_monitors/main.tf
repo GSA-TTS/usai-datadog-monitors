@@ -19,34 +19,43 @@ locals {
 # ---------------------------------------------------------------------------
 
 resource "datadog_monitor" "bedrock_invocation_latency_high" {
-  name = "[${var.tenant}] Bedrock - Invocation Latency High (>30s avg, per model)"
+  name = "[${var.tenant}] Bedrock - Invocation Latency High (>45s avg, per model)"
   type = "metric alert"
-  # Avg invocation latency per model over 10m. 30s critical / 20s warning —
-  # well above the ~8s baseline but ~3x earlier than the 88s+ user-visible
-  # collapse, giving lead time to react.
-  query = "avg(last_10m):avg:aws.bedrock.invocation_latency{*} by {modelid} > 30000"
+  # Avg invocation latency per model over 10m. 45s critical / 30s warning.
+  # Refit 2026-07-09: the original 30s bar was calibrated to the older/faster
+  # 2026-06-02 model mix and flapped constantly on the heavier reasoning models
+  # now in use (opus-4-8/4-7 legitimately run 20-30s). 45s is still well below
+  # the 88s+ user-visible collapse. Recovery hysteresis (35s/25s) stops the
+  # Warn<->OK<->Alert flap when avg latency hovers at the line.
+  query = "avg(last_10m):avg:aws.bedrock.invocation_latency{*} by {modelid} > 45000"
 
   message = <<-EOT
     {{#is_alert}}
-    Bedrock model {{modelid.name}} average invocation latency has exceeded 30s over the last 10 minutes (current: {{value}} ms).
+    Bedrock model {{modelid.name}} average invocation latency has exceeded 45s over the last 10 minutes (current: {{value}} ms).
 
     This is the signature of the 2026-06-02 incident: requests succeed but very slowly, saturating app concurrency and collapsing throughput — with NO throttling reported by AWS. Likely a Bedrock model-serving slowdown. Check the model's region capacity and consider failover/load-shedding.
+    ${var.notification_channel}
     {{/is_alert}}
     {{#is_warning}}
-    Bedrock model {{modelid.name}} average invocation latency is elevated (>20s over 10m, current {{value}} ms). Watch for further degradation.
+    Bedrock model {{modelid.name}} average invocation latency is elevated (>30s over 10m, current {{value}} ms). Watch for further degradation. (No page — visible on the Model Backend dashboard.)
     {{/is_warning}}
+    {{#is_alert_recovery}}
+    Recovered: Bedrock model {{modelid.name}} invocation latency back below threshold (current {{value}} ms).
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
 
     Tenant: ${var.tenant} @ Metric: aws.bedrock.invocation_latency by modelid
-    ${var.notification_channel}
   EOT
 
   monitor_thresholds {
-    critical = 30000
-    warning  = 20000
+    critical          = 45000
+    warning           = 30000
+    critical_recovery = 35000
+    warning_recovery  = 25000
   }
 
   notify_no_data    = false
-  renotify_interval = 30
+  renotify_interval = 60
   notify_audit      = false
   new_group_delay   = 300
 
@@ -66,19 +75,22 @@ resource "datadog_monitor" "bedrock_invocation_throttles" {
     Bedrock model {{modelid.name}} is being THROTTLED by AWS — {{value}} InvocationThrottles in the last 5 minutes.
 
     This is a quota/rate-limit problem (distinct from latency degradation). Requests are being rejected. Review the model's TPM/RPM quota usage and request a service quota increase or shed load.
+    ${var.notification_channel}
     {{/is_alert}}
+    {{#is_alert_recovery}}
+    Recovered: Bedrock model {{modelid.name}} throttling has cleared.
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
 
     Tenant: ${var.tenant} @ Metric: aws.bedrock.invocation_throttles by modelid
-    ${var.notification_channel}
   EOT
 
   monitor_thresholds {
     critical = 5
-    warning  = 1
   }
 
   notify_no_data    = false
-  renotify_interval = 30
+  renotify_interval = 60
   notify_audit      = false
   new_group_delay   = 300
 
@@ -86,26 +98,44 @@ resource "datadog_monitor" "bedrock_invocation_throttles" {
 }
 
 resource "datadog_monitor" "bedrock_server_errors" {
-  name  = "[${var.tenant}] Bedrock - Server Errors (5xx from model service)"
-  type  = "metric alert"
-  query = "sum(last_5m):sum:aws.bedrock.invocation_server_errors{*} by {modelid}.as_count() > 5"
+  name = "[${var.tenant}] Bedrock - Server Error Rate High (5xx % per model)"
+  type = "metric alert"
+  # Error RATE, not raw count. Refit 2026-07-09: the old "5 errors in 5m"
+  # absolute-count rule flapped constantly and paged on transient low-volume
+  # blips — e.g. GSA sonnet-4-6 at 0.6% (26 err / 4173 inv) tripped the same
+  # as opus-4-8 at a genuine 5.8% (94 err / 1613 inv). AWS Bedrock 5xx are
+  # frequently brief, self-recovering, server-side events; a rate over a 15m
+  # window is stable and tells a real degradation from noise.
+  #
+  # >10% crit over 15m fires on a sustained real problem (opus's 5.8% would
+  # NOT page — intentional; that was a transient blip, not an outage). Recovery
+  # at 3% gives hysteresis so it won't re-trigger while the rate hovers.
+  # Low-volume caveat: over 15m these production chat models see hundreds+ of
+  # invocations, so the ratio is well-conditioned; a near-idle model could in
+  # principle spike the % on a couple of errors, but new_group_delay + the 15m
+  # window make that rare and short-lived.
+  query = "sum(last_15m):( sum:aws.bedrock.invocation_server_errors{*} by {modelid}.as_count() / sum:aws.bedrock.invocations{*} by {modelid}.as_count() ) * 100 > 10"
 
   message = <<-EOT
     {{#is_alert}}
-    Bedrock model {{modelid.name}} returned {{value}} server errors (5xx) in the last 5 minutes — the model service itself is failing requests. Check AWS Health Dashboard for Bedrock service events in us-east-1.
-    {{/is_alert}}
-
-    Tenant: ${var.tenant} @ Metric: aws.bedrock.invocation_server_errors by modelid
+    Bedrock model {{modelid.name}} is failing {{value}}% of requests with 5xx server errors over the last 15 minutes — the model service itself is failing a sustained share of requests, not just a transient blip. Check the AWS Health Dashboard for Bedrock service events in us-east-1 and consider failover.
     ${var.notification_channel}
+    {{/is_alert}}
+    {{#is_alert_recovery}}
+    Recovered: Bedrock model {{modelid.name}} 5xx error rate back below threshold (current {{value}}%).
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
+
+    Tenant: ${var.tenant} @ Metric: aws.bedrock.invocation_server_errors / invocations by modelid
   EOT
 
   monitor_thresholds {
-    critical = 5
-    warning  = 1
+    critical          = 10
+    critical_recovery = 3
   }
 
   notify_no_data    = false
-  renotify_interval = 30
+  renotify_interval = 60
   notify_audit      = false
   new_group_delay   = 300
 
@@ -139,13 +169,17 @@ resource "datadog_monitor" "azure_openai_throttling" {
     The USAi api service is logging "Too Many Requests" (HTTP 429) — more than 3 in the last 5 minutes. This is the signature of the 2026-06-02 incident: Azure OpenAI (GPT models) is rate-limiting us and chat streams are being aborted mid-flight.
 
     This is distinct from AWS Bedrock — Bedrock throttling/latency has its own monitors. Check: Azure OpenAI quota/TPM usage for this deployment, any single high-volume caller (e.g. API clients hammering /api/v1/chat/completions), and whether to request an Azure quota increase or shed load.
+    ${var.notification_channel}
     {{/is_alert}}
     {{#is_warning}}
-    The USAi api service has logged at least one "Too Many Requests" (429) in the last 5 minutes. Azure OpenAI may be starting to throttle — watch for escalation.
+    The USAi api service has logged at least one "Too Many Requests" (429) in the last 5 minutes. Azure OpenAI may be starting to throttle — watch for escalation. (No page — visible on the App Health dashboard.)
     {{/is_warning}}
+    {{#is_alert_recovery}}
+    Recovered: api service 429 "Too Many Requests" rate back to normal.
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
 
     Tenant: ${var.tenant} @ Query: service:api "Too Many Requests"
-    ${var.notification_channel}
   EOT
 
   monitor_thresholds {
@@ -173,13 +207,17 @@ resource "datadog_monitor" "azure_openai_stream_aborted" {
   message = <<-EOT
     {{#is_alert}}
     The USAi api service has aborted more than 3 model response streams mid-flight in the last 5 minutes. Users are seeing chat responses cut off partway. In the 2026-06-02 incident this was driven by Azure OpenAI 429s (see the throttling monitor) — correlate the two. If 429s are NOT also firing, suspect upstream timeouts or connection resets instead.
+    ${var.notification_channel}
     {{/is_alert}}
     {{#is_warning}}
-    At least one model response stream was aborted mid-flight in the last 5 minutes. Watch for escalation.
+    At least one model response stream was aborted mid-flight in the last 5 minutes. Watch for escalation. (No page — visible on the App Health dashboard.)
     {{/is_warning}}
+    {{#is_alert_recovery}}
+    Recovered: api service stream-abort rate back to normal.
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
 
     Tenant: ${var.tenant} @ Query: service:api "Stream aborted mid-flight"
-    ${var.notification_channel}
   EOT
 
   monitor_thresholds {
