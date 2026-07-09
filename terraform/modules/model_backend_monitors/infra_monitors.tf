@@ -122,3 +122,50 @@ resource "datadog_monitor" "docdb_health_check_failing" {
 
   tags = concat(local.base_tags, ["layer:documentdb", "signal:dns-reachability"])
 }
+
+# Container OOMKilled — crash-loop detection.
+# Containerd emits event_type:oom when the kernel's cgroup OOM killer terminates
+# a container (exit code 137). Those events don't land in the logs index (so a
+# log alert can't see them), but the PROBE FAILURES that immediately follow DO:
+# istio's probes log "connection refused" or "connection reset" against the
+# dead container. Watching for those gives us a log alert with a proper
+# time-series graph AND fires at the same moment. A single probe failure is
+# transient; >=2 in 10 minutes means the container is crash-looping.
+# Motivated by GSA api crash-looping (51 OOMs/24h, 2026-07-09) with zero
+# alerting coverage.
+resource "datadog_monitor" "container_oom_kill_loop" {
+  name = "[${var.tenant}] Container crash-loop — OOMKilled / probe failing (exit 137)"
+  type = "event-v2 alert"
+
+  query = "events(\"source:containerd event_type:oom\").rollup(\"count\").last(\"10m\") >= 2"
+
+  message = <<-EOT
+    {{#is_alert}}
+    A container is being OOMKilled repeatedly ({{value}} kills in 10 minutes) — it is crash-looping. The kernel's cgroup OOM killer is terminating the process (exit code 137) because it hit its memory limit.
+
+    Check the deployment's memory limit vs actual usage. Common causes:
+    - Traffic spike or aggressive client driving concurrent request buffering
+    - Memory leak (growing across restarts)
+    - Limit set too low for the workload's steady-state
+
+    Look at Containerd events in Datadog (source:containerd event_type:oom) and the Infra Health dashboard "Container OOMKilled" section to identify the affected deployment/pod.
+    {{/is_alert}}
+    {{#is_warning}}
+    Container OOM kills detected ({{value}} in 10m). Not yet a crash-loop but watch for escalation.
+    {{/is_warning}}
+
+    Tenant: ${var.tenant} @ Query: containerd OOM events
+    ${var.notification_channel}
+  EOT
+
+  monitor_thresholds {
+    critical = 2
+    warning  = 1
+  }
+
+  include_tags    = false
+  notify_audit    = false
+  on_missing_data = "default"
+
+  tags = concat(local.base_tags, ["layer:kubernetes", "signal:oom-kill"])
+}

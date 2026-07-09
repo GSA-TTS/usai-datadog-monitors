@@ -7,9 +7,9 @@
 # sources (the DD api/app keys), a datadog provider alias authed with those
 # keys, and one module call. Add/remove a tenant by adding/removing its block.
 #
-# ENABLED TENANTS = the 7 whose usai-<t>-shared-dd-* secrets are readable today
-# (Environment=production tag applied 2026-06-10). The remaining ~16 tenants are
-# blocked on the same tagging fix and are listed in tenants.pending.md.
+# ENABLED TENANTS = 23 (original 7 + 16 unblocked 2026-07-09).
+# aigov excluded (shared account, separate treatment); gsai blocked (KMS decrypt
+# denied); disa has no SSO access.
 #
 # Keys are read from AWS Secrets Manager at plan time — no TF_VAR_* needed.
 # Requires the matching AWS SSO profiles to be logged in (aws sso login).
@@ -242,6 +242,534 @@ module "oge" {
   providers = { datadog = datadog.oge }
 
   tenant               = "oge"
+  notification_channel = var.notification_channel
+}
+
+# ---- ang -------------------------------------------------------------------
+provider "aws" {
+  alias   = "ang"
+  region  = "us-east-1"
+  profile = "ang"
+}
+
+data "aws_secretsmanager_secret_version" "ang_api" {
+  provider  = aws.ang
+  secret_id = "usai-ang-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "ang_app" {
+  provider  = aws.ang
+  secret_id = "usai-ang-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "ang"
+  api_key  = data.aws_secretsmanager_secret_version.ang_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.ang_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "ang" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.ang }
+
+  tenant               = "ang"
+  notification_channel = var.notification_channel
+}
+
+# ---- doc -------------------------------------------------------------------
+provider "aws" {
+  alias   = "doc"
+  region  = "us-east-1"
+  profile = "doc"
+}
+
+data "aws_secretsmanager_secret_version" "doc_api" {
+  provider  = aws.doc
+  secret_id = "usai-doc-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "doc_app" {
+  provider  = aws.doc
+  secret_id = "usai-doc-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "doc"
+  api_key  = data.aws_secretsmanager_secret_version.doc_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.doc_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "doc" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.doc }
+
+  tenant               = "doc"
+  notification_channel = var.notification_channel
+}
+
+# ---- doi -------------------------------------------------------------------
+provider "aws" {
+  alias   = "doi"
+  region  = "us-east-1"
+  profile = "doi"
+}
+
+data "aws_secretsmanager_secret_version" "doi_api" {
+  provider  = aws.doi
+  secret_id = "usai-doi-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "doi_app" {
+  provider  = aws.doi
+  secret_id = "usai-doi-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "doi"
+  api_key  = data.aws_secretsmanager_secret_version.doi_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.doi_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "doi" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.doi }
+
+  tenant               = "doi"
+  notification_channel = var.notification_channel
+}
+
+# ---- doli ------------------------------------------------------------------
+provider "aws" {
+  alias   = "doli"
+  region  = "us-east-1"
+  profile = "aigov-doli"
+}
+
+data "aws_secretsmanager_secret_version" "doli_api" {
+  provider  = aws.doli
+  secret_id = "doli-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "doli_app" {
+  provider  = aws.doli
+  secret_id = "doli-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "doli"
+  api_key  = data.aws_secretsmanager_secret_version.doli_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.doli_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "doli" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.doli }
+
+  tenant               = "doli"
+  notification_channel = var.notification_channel
+}
+
+# ---- dot -------------------------------------------------------------------
+provider "aws" {
+  alias   = "dot"
+  region  = "us-east-1"
+  profile = "dot"
+}
+
+data "aws_secretsmanager_secret_version" "dot_api" {
+  provider  = aws.dot
+  secret_id = "usai-dot-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "dot_app" {
+  provider  = aws.dot
+  secret_id = "usai-dot-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "dot"
+  api_key  = data.aws_secretsmanager_secret_version.dot_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.dot_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "dot" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.dot }
+
+  tenant               = "dot"
+  notification_channel = var.notification_channel
+}
+
+# ---- ed --------------------------------------------------------------------
+provider "aws" {
+  alias   = "ed"
+  region  = "us-east-1"
+  profile = "ed"
+}
+
+data "aws_secretsmanager_secret_version" "ed_api" {
+  provider  = aws.ed
+  secret_id = "usai-ed-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "ed_app" {
+  provider  = aws.ed
+  secret_id = "usai-ed-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "ed"
+  api_key  = data.aws_secretsmanager_secret_version.ed_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.ed_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "ed" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.ed }
+
+  tenant               = "ed"
+  notification_channel = var.notification_channel
+}
+
+# ---- fhfa ------------------------------------------------------------------
+provider "aws" {
+  alias   = "fhfa"
+  region  = "us-east-1"
+  profile = "fhfa"
+}
+
+data "aws_secretsmanager_secret_version" "fhfa_api" {
+  provider  = aws.fhfa
+  secret_id = "usai-fhfa-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "fhfa_app" {
+  provider  = aws.fhfa
+  secret_id = "usai-fhfa-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "fhfa"
+  api_key  = data.aws_secretsmanager_secret_version.fhfa_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.fhfa_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "fhfa" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.fhfa }
+
+  tenant               = "fhfa"
+  notification_channel = var.notification_channel
+}
+
+# ---- gsa -------------------------------------------------------------------
+provider "aws" {
+  alias   = "gsa"
+  region  = "us-east-1"
+  profile = "gsa"
+}
+
+data "aws_secretsmanager_secret_version" "gsa_api" {
+  provider  = aws.gsa
+  secret_id = "usai-gsa-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "gsa_app" {
+  provider  = aws.gsa
+  secret_id = "usai-gsa-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "gsa"
+  api_key  = data.aws_secretsmanager_secret_version.gsa_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.gsa_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "gsa" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.gsa }
+
+  tenant               = "gsa"
+  notification_channel = var.notification_channel
+}
+
+# ---- hhs -------------------------------------------------------------------
+provider "aws" {
+  alias   = "hhs"
+  region  = "us-east-1"
+  profile = "hhs"
+}
+
+data "aws_secretsmanager_secret_version" "hhs_api" {
+  provider  = aws.hhs
+  secret_id = "usai-hhs-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "hhs_app" {
+  provider  = aws.hhs
+  secret_id = "usai-hhs-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "hhs"
+  api_key  = data.aws_secretsmanager_secret_version.hhs_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.hhs_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "hhs" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.hhs }
+
+  tenant               = "hhs"
+  notification_channel = var.notification_channel
+}
+
+# ---- hud -------------------------------------------------------------------
+provider "aws" {
+  alias   = "hud"
+  region  = "us-east-1"
+  profile = "hud"
+}
+
+data "aws_secretsmanager_secret_version" "hud_api" {
+  provider  = aws.hud
+  secret_id = "usai-hud-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "hud_app" {
+  provider  = aws.hud
+  secret_id = "usai-hud-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "hud"
+  api_key  = data.aws_secretsmanager_secret_version.hud_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.hud_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "hud" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.hud }
+
+  tenant               = "hud"
+  notification_channel = var.notification_channel
+}
+
+# ---- ncua ------------------------------------------------------------------
+provider "aws" {
+  alias   = "ncua"
+  region  = "us-east-1"
+  profile = "ncua"
+}
+
+data "aws_secretsmanager_secret_version" "ncua_api" {
+  provider  = aws.ncua
+  secret_id = "usai-ncua-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "ncua_app" {
+  provider  = aws.ncua
+  secret_id = "usai-ncua-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "ncua"
+  api_key  = data.aws_secretsmanager_secret_version.ncua_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.ncua_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "ncua" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.ncua }
+
+  tenant               = "ncua"
+  notification_channel = var.notification_channel
+}
+
+# ---- opm -------------------------------------------------------------------
+provider "aws" {
+  alias   = "opm"
+  region  = "us-east-1"
+  profile = "opm"
+}
+
+data "aws_secretsmanager_secret_version" "opm_api" {
+  provider  = aws.opm
+  secret_id = "usai-opm-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "opm_app" {
+  provider  = aws.opm
+  secret_id = "usai-opm-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "opm"
+  api_key  = data.aws_secretsmanager_secret_version.opm_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.opm_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "opm" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.opm }
+
+  tenant               = "opm"
+  notification_channel = var.notification_channel
+}
+
+# ---- pc --------------------------------------------------------------------
+provider "aws" {
+  alias   = "pc"
+  region  = "us-east-1"
+  profile = "pc"
+}
+
+data "aws_secretsmanager_secret_version" "pc_api" {
+  provider  = aws.pc
+  secret_id = "usai-pc-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "pc_app" {
+  provider  = aws.pc
+  secret_id = "usai-pc-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "pc"
+  api_key  = data.aws_secretsmanager_secret_version.pc_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.pc_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "pc" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.pc }
+
+  tenant               = "pc"
+  notification_channel = var.notification_channel
+}
+
+# ---- sss -------------------------------------------------------------------
+provider "aws" {
+  alias   = "sss"
+  region  = "us-east-1"
+  profile = "sss"
+}
+
+data "aws_secretsmanager_secret_version" "sss_api" {
+  provider  = aws.sss
+  secret_id = "usai-sss-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "sss_app" {
+  provider  = aws.sss
+  secret_id = "usai-sss-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "sss"
+  api_key  = data.aws_secretsmanager_secret_version.sss_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.sss_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "sss" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.sss }
+
+  tenant               = "sss"
+  notification_channel = var.notification_channel
+}
+
+# ---- stateoig --------------------------------------------------------------
+provider "aws" {
+  alias   = "stateoig"
+  region  = "us-east-1"
+  profile = "stateoig"
+}
+
+data "aws_secretsmanager_secret_version" "stateoig_api" {
+  provider  = aws.stateoig
+  secret_id = "usai-stateoig-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "stateoig_app" {
+  provider  = aws.stateoig
+  secret_id = "usai-stateoig-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "stateoig"
+  api_key  = data.aws_secretsmanager_secret_version.stateoig_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.stateoig_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "stateoig" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.stateoig }
+
+  tenant               = "stateoig"
+  notification_channel = var.notification_channel
+}
+
+# ---- usda ------------------------------------------------------------------
+provider "aws" {
+  alias   = "usda"
+  region  = "us-east-1"
+  profile = "usda"
+}
+
+data "aws_secretsmanager_secret_version" "usda_api" {
+  provider  = aws.usda
+  secret_id = "usai-usda-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "usda_app" {
+  provider  = aws.usda
+  secret_id = "usai-usda-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "usda"
+  api_key  = data.aws_secretsmanager_secret_version.usda_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.usda_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "usda" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.usda }
+
+  tenant               = "usda"
   notification_channel = var.notification_channel
 }
 

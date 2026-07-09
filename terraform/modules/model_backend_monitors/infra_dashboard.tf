@@ -217,6 +217,34 @@ resource "datadog_dashboard" "infra_health" {
     }
   }
 
+  # ---- Section: Container OOMKilled -------------------------------------------
+  widget {
+    note_definition {
+      content          = "## Container OOMKilled\nKernel cgroup OOM kills (exit 137). A burst here means a container is crash-looping because it hit its memory limit. The monitor alerts at >=2/10m. Check which deployment is affected and whether traffic, a leak, or an undersized limit is the cause."
+      background_color = "red"
+      font_size        = "14"
+      text_align       = "left"
+      show_tick        = false
+    }
+  }
+
+  widget {
+    event_timeline_definition {
+      title          = "OOMKilled events (containerd) — each bar is a kill"
+      query          = "source:containerd event_type:oom"
+      tags_execution = "and"
+    }
+  }
+
+  widget {
+    event_stream_definition {
+      title          = "OOMKilled events — live stream (deployment + pod)"
+      query          = "source:containerd event_type:oom"
+      event_size     = "s"
+      tags_execution = "and"
+    }
+  }
+
   # ---- Section: DocumentDB (Mongo-compatible) --------------------------------
   widget {
     note_definition {
