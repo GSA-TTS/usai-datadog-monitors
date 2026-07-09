@@ -220,7 +220,7 @@ resource "datadog_dashboard" "infra_health" {
   # ---- Section: Container OOMKilled -------------------------------------------
   widget {
     note_definition {
-      content          = "## Container OOMKilled\nKernel cgroup OOM kills (exit 137). A burst here means a container is crash-looping because it hit its memory limit. The monitor alerts at >3/10m. Check which deployment is affected and whether traffic, a leak, or an undersized limit is the cause."
+      content          = "## Container OOMKilled\nKernel cgroup OOM kills (exit 137). A burst here means a container is crash-looping because it hit its memory limit. The monitor alerts at >=2/10m. Check which deployment is affected and whether traffic, a leak, or an undersized limit is the cause."
       background_color = "red"
       font_size        = "14"
       text_align       = "left"
