@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- Tuned the Bedrock + Azure OpenAI monitors to stop Slack alert flapping (all 23 orgs). The `@channel` handle was outside the `{{#is_alert}}` block, so every Warn/Recovered/Triggered transition pinged Slack; moved it into `{{#is_alert}}` + `{{#is_alert_recovery}}` so only critical alerts and their recoveries page (warnings stay on the dashboards). Also: rewrote `bedrock_server_errors` as an error **rate** (>10% of invocations over 15m) instead of a raw count (>5 in 5m) — a 0.6% transient blip no longer pages like a real 5.8%+ degradation; refit `bedrock_invocation_latency_high` to 45s (from 30s) for the heavier opus-4-8/4-7 model mix; added recovery-threshold hysteresis; dropped the `warning=1` on throttles; `renotify_interval` 30→60m.
+
 ### Removed
 - `bedrock_invocations_drop` throughput-collapse monitor (all 7 orgs). Anomaly detection can't work on sparse/intermittent model traffic — it wedged in Alert on a model that stopped emitting and re-paged hourly. Redundant with `bedrock_invocation_latency_high`.
 
