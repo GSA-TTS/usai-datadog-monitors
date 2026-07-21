@@ -1318,9 +1318,5 @@
       "default": "*"
     }
   ],
-  "reflow_type": "fixed",
-  "tags": [
-    "managed-by:terraform",
-    "service:keycloak"
-  ]
+  "reflow_type": "fixed"
 }
