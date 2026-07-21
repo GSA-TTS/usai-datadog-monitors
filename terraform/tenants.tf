@@ -8,11 +8,41 @@
 # keys, and one module call. Add/remove a tenant by adding/removing its block.
 #
 # ENABLED TENANTS = 23 (original 7 + 16 unblocked 2026-07-09).
-# aigov excluded (shared account, separate treatment); gsai blocked (KMS decrypt
-# denied); disa has no SSO access.
+# aigov is the shared account: it does NOT get the per-tenant model_backend
+# monitors module, but its Keycloak monitors + dashboard ARE managed here (see
+# the aigov provider block below + monitors.tf / dashboard.tf). gsai blocked
+# (KMS decrypt denied); disa has no SSO access.
 #
 # Keys are read from AWS Secrets Manager at plan time — no TF_VAR_* needed.
 # Requires the matching AWS SSO profiles to be logged in (aws sso login).
+
+# ---- aigov (shared account) ------------------------------------------------
+# aigov hosts the shared Keycloak. Unlike the other tenants it gets NO
+# model_backend_monitors module — only the Keycloak log alerts (monitors.tf)
+# and the Keycloak dashboard (dashboard.tf), which reference datadog.aigov.
+provider "aws" {
+  alias   = "aigov"
+  region  = "us-east-1"
+  profile = "aigov"
+}
+
+data "aws_secretsmanager_secret_version" "aigov_api" {
+  provider  = aws.aigov
+  secret_id = "aigov-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "aigov_app" {
+  provider  = aws.aigov
+  secret_id = "aigov-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "aigov"
+  api_key  = data.aws_secretsmanager_secret_version.aigov_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.aigov_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
 
 # ---- dnfsb ------------------------------------------------------------------
 provider "aws" {
