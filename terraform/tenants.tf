@@ -407,6 +407,29 @@ module "doli" {
   notification_channel = var.notification_channel
 }
 
+# Temporary blanket mute of ALL doli monitors (2026-07-21). doli was paging
+# noisily (whole-tenant deployment-availability blips + OOM). This is a
+# reversible downtime scoped to the tenant:doli tag that every monitor in the
+# module carries — it silences notifications without changing any monitor
+# definition or touching the workloads. REMOVE this resource to un-mute.
+# (Not a decommission — see the tenant-ops thread; revisit whether doli should
+# be retired separately.)
+resource "datadog_downtime_schedule" "doli_mute" {
+  provider = datadog.doli
+  scope    = "tenant:doli"
+
+  monitor_identifier {
+    monitor_tags = ["tenant:doli"]
+  }
+
+  # Empty one_time_schedule = starts now, no end → indefinite mute until this
+  # resource is removed. (The API requires a schedule block to be present.)
+  one_time_schedule {}
+
+  display_timezone = "UTC"
+  message          = "Temporary blanket mute of doli monitors (noise, 2026-07-21). Remove this downtime to re-enable paging."
+}
+
 # ---- dot -------------------------------------------------------------------
 provider "aws" {
   alias   = "dot"
