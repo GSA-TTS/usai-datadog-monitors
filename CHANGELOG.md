@@ -12,6 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - `bedrock_invocations_drop` throughput-collapse monitor (all 7 orgs). Anomaly detection can't work on sparse/intermittent model traffic — it wedged in Alert on a model that stopped emitting and re-paged hourly. Redundant with `bedrock_invocation_latency_high`.
 
 ### Added
+- Deployment-availability monitor (`query alert`, all 23 orgs): fires when a deployment is short of its desired replicas for a sustained 30m (`kubernetes_state.deployment.replicas_desired − replicas_ready >= 1`, grouped by namespace+deployment). A normal rolling-update dip recovers within the window; `on_missing_data=default` avoids false pages on intentional teardown. Paired with a "Deployment Health" section on the Infra Health dashboard (unavailable-replicas bars + top-offenders toplist). Motivated by GSA-TTS/usai#896 — a legacy frontend-apps deployment on doc/dot/usda ran a vulnerable image and sat "does not have minimum availability" for a full day with zero alerting.
 - Onboarded 16 previously-blocked tenant orgs (ang, doc, doi, doli, dot, ed, fhfa, gsa, hhs, hud, ncua, opm, pc, sss, stateoig, usda) — total enabled: 23.
 - Container OOMKilled crash-loop monitor (`event-v2 alert`, >=2 kills/10m) + "Container OOMKilled" section on Infra Health dashboard (event timeline + stream). Motivated by GSA api OOM-looping (51 kills/24h, 2026-07-09) with zero alerting.
 - DocumentDB health-check monitor (DNS/reachability) + a DocumentDB section on the Infra Health dashboard (failure logs alongside cluster connections/CPU).

@@ -169,3 +169,66 @@ resource "datadog_monitor" "container_oom_kill_loop" {
 
   tags = concat(local.base_tags, ["layer:kubernetes", "signal:oom-kill"])
 }
+
+# Deployment availability: a rollout that is stuck, an orphaned deployment that
+# never converges, or pods that won't schedule all show up as
+# desired-replicas > ready-replicas that STAYS elevated. Kubernetes surfaces
+# this as "Deployment does not have minimum availability"; kube-state-metrics
+# exposes it as kubernetes_state.deployment.replicas_desired vs .replicas_ready.
+# A brief gap during a normal rolling update is expected, so we only alert when
+# a deployment is short of its desired replicas for a sustained window (30m).
+#
+# Motivated by GSA-TTS/usai#896 (2026-07-20): the legacy frontend-apps
+# deployment on doc/dot/usda ran a vulnerable image and never converged for a
+# full day with ZERO alerting — found only by hand. This is the monitor that
+# would have paged on it.
+resource "datadog_monitor" "deployment_unavailable" {
+  name = "[${var.tenant}] Deployment lacks minimum availability (stuck rollout / not ready)"
+  type = "query alert"
+
+  # avg over the window: fires when a deployment is short of desired for the
+  # MAJORITY of 30m — catches a flatly-stuck deploy AND a flapping/crash-looping
+  # one (min() would let a momentary Ready blip suppress the page), while a brief
+  # rolling-update dip averages back below 1 and self-clears. Grouped by
+  # cluster+namespace+deployment so multi-cluster orgs don't cross-aggregate and
+  # the alert names the offender.
+  query = "avg(last_30m):( max:kubernetes_state.deployment.replicas_desired{*} by {kube_cluster_name,kube_namespace,kube_deployment} - max:kubernetes_state.deployment.replicas_ready{*} by {kube_cluster_name,kube_namespace,kube_deployment} ) >= 1"
+
+  message = <<-EOT
+    {{#is_alert}}
+    Deployment {{kube_deployment.name}} in {{kube_namespace.name}} has been short of its desired replicas for 30+ minutes ({{value}} replica(s) not ready) — "does not have minimum availability".
+
+    This is NOT a normal rolling update (those recover within the window). Likely causes:
+    - A stuck/failed rollout (new pods not passing readiness)
+    - An orphaned or unmanaged deployment that can no longer schedule (e.g. missing secret, node pressure, superseded by a migration)
+    - Image pull / config error on the current tag
+
+    Check `kubectl get deploy -n {{kube_namespace.name}}` and the pod events. If the deployment is legacy/superseded, it should be removed rather than left half-running (see GSA-TTS/usai#896).
+    ${var.notification_channel}
+    {{/is_alert}}
+    {{#is_recovery}}
+    Recovered: {{kube_deployment.name}} in {{kube_namespace.name}} is back to full availability.
+    ${var.notification_channel}
+    {{/is_recovery}}
+
+    Tenant: ${var.tenant} @ Query: kubernetes_state.deployment desired vs ready
+  EOT
+
+  monitor_thresholds {
+    critical = 1
+  }
+
+  # A genuinely stuck deployment persists; re-page at most every 2h rather than
+  # flapping. Groups evaluate independently so one bad deploy doesn't mask others.
+  renotify_interval = 120
+
+  # on_missing_data "default" = do nothing when the series stops reporting — a
+  # deployment that disappears entirely is a different signal, and this avoids a
+  # false page on every intentional teardown. (Mutually exclusive with the
+  # legacy notify_no_data, so only this one is set.)
+  on_missing_data = "default"
+  include_tags    = true
+  notify_audit    = false
+
+  tags = concat(local.base_tags, ["layer:kubernetes", "signal:deployment-availability"])
+}
