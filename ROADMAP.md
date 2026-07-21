@@ -5,7 +5,7 @@
 | Priority | Feature | Why | Milestone |
 |----------|---------|-----|-----------|
 | **P1** | Onboard tag-blocked tenants to model-backend monitors | 16 tenants have no Bedrock/Azure monitoring; blocked on the `Environment=production` secret tag | v0.1.0 |
-| **P2** | Re-enable aigov Keycloak monitors and dashboard | aigov-specific Keycloak alerts + dashboard are parked, leaving aigov auth unmonitored | v0.1.0 |
+| ~~**P2**~~ | ~~Re-enable aigov Keycloak monitors and dashboard~~ | **Done** — aigov Keycloak monitors + dashboard now Terraform-managed (see Completed) | v0.1.0 |
 | **P3** | Validate Bedrock anomaly monitor baseline | The new anomaly-based throughput-collapse monitor needs baseline warm-up confirmation across tenants | v0.1.0 |
 
 ## Milestones
@@ -26,13 +26,15 @@ names: aigov uses `aigov-shared-dd-*`, doli uses `doli-shared-dd-*`, gsai uses
 `gsai-shared-dd-*`. The disa account has no SSO access at all and is out of scope
 until that is resolved.
 
-**Re-enable aigov Keycloak monitors and dashboard**
-The 5 aigov-specific Keycloak log alerts and the Keycloak dashboard are parked as
-`terraform/monitors.tf.aigov-pending` and `terraform/dashboard.tf.aigov-pending`.
-Re-enable once aigov's secret is readable: rename to `.tf`, add an aigov block to
-`tenants.tf`, point the resources at `provider = datadog.aigov`, and import the
-existing live resources (IDs in `README.md`) so Terraform adopts rather than
-duplicates them. Steps are documented in `terraform/providers.tf`.
+**Re-enable aigov Keycloak monitors and dashboard** — ✅ **Done.**
+The 5 aigov-specific Keycloak log alerts (`terraform/monitors.tf`) and the Keycloak
+dashboard (`terraform/dashboard.tf`) are now Terraform-managed via the
+`datadog.aigov` provider alias in `tenants.tf`. The pre-existing hand-created
+resources were adopted with `terraform import` (monitors 568525–568532, dashboard
+`g2g-uxq-vqh`) — no duplicates created. aigov gets only these Keycloak assets, not
+the `model_backend_monitors` module. See the Completed section for the two
+known-benign perpetual diffs (auto-attached runbook `assets`, dashboard
+`notify_list`).
 
 **Validate Bedrock anomaly monitor baseline**
 The `bedrock_invocations_drop` monitor in
@@ -45,6 +47,18 @@ loose on sparse models, adjust the bound or seasonality, or remove the monitor
 
 ## Completed
 
+- **P2 — aigov Keycloak monitors + dashboard under Terraform.** Wired an
+  `aws.aigov`/`datadog.aigov` provider pair in `tenants.tf` (no
+  `model_backend_monitors` module — aigov is the shared account and gets only the
+  Keycloak assets) and activated `monitors.tf` + `dashboard.tf` from the parked
+  `.aigov-pending` files. Adopted the 5 pre-existing hand-created monitors
+  (568525–568532) and the dashboard (`g2g-uxq-vqh`) via `terraform import` — no
+  duplicates. Folded in the dashboard CPU/mem/pods tag fix
+  (`app:keycloak` → `kube_deployment:keycloak`). Two known-benign perpetual diffs
+  remain and represent no real drift: Datadog auto-attaches a "Datadog Runbook"
+  `assets` block to each monitor after apply, and the dashboard API round-trips
+  `notify_list = null`. The dashboard JSON carries no `tags` because the aigov org
+  restricts dashboard tag keys to `team`/`ai`.
 - Multi-tenant refactor: model-backend Bedrock + Azure OpenAI monitors rolled out
   to 7 enabled tenant orgs via a reusable module (PR #1).
 - Remote S3 state backend in the shared `aigov-tenant-tfstate` bucket (PR #2).
