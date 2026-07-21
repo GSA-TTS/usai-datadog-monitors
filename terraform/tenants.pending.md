@@ -19,10 +19,11 @@ Note non-standard secret names / profiles:
 - doli → `doli-shared-dd-api-key` / `doli-shared-dd-app-key`, profile `aigov-doli`
 - Most new tenants → `usai-<tenant>-shared-dd-*` (not `<tenant>-shared-dd-*`)
 
-## Excluded — aigov
+## aigov — wired (no model_backend module)
 
-aigov is excluded from the standard per-tenant module (shared account, separate
-treatment). Its secrets are readable but it is not wired in `tenants.tf`.
+aigov is the shared account and does NOT get the standard per-tenant
+`model_backend_monitors` module. It IS wired in `tenants.tf` (aws.aigov +
+datadog.aigov provider aliases) for its Keycloak-only assets — see below.
 
 ## Blocked — gsai (KMS)
 
@@ -36,10 +37,10 @@ doesn't grant decrypt to our role.
 disa — the `disa` SSO profile returns ForbiddenException on GetRoleCredentials
 (no role access at all), separate from the tagging issue.
 
-## aigov Keycloak monitors + dashboard
+## aigov Keycloak monitors + dashboard — managed
 
-`monitors.tf.aigov-pending` and `dashboard.tf.aigov-pending` hold the 5
-aigov-specific Keycloak log alerts and the Keycloak dashboard. They are
-aigov-only (queries reference aigov clients; import IDs are aigov's) and are
-disabled until aigov is onboarded separately. See `providers.tf` for re-enable
-steps.
+`terraform/monitors.tf` (5 aigov-specific Keycloak log alerts) and
+`terraform/dashboard.tf` (the Keycloak dashboard) are now Terraform-managed via
+the `datadog.aigov` provider alias. The pre-existing hand-created resources were
+adopted via `terraform import` (monitors 568525–568532, dashboard `g2g-uxq-vqh`)
+— no duplicates. ROADMAP P2, done.

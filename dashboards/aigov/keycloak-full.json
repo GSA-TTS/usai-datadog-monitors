@@ -1147,7 +1147,7 @@
               {
                 "name": "query1",
                 "data_source": "metrics",
-                "query": "avg:kubernetes.cpu.usage.total{app:keycloak} by {pod_name}"
+                "query": "avg:kubernetes.cpu.usage.total{kube_deployment:keycloak} by {pod_name}"
               }
             ],
             "response_format": "timeseries",
@@ -1184,7 +1184,7 @@
               {
                 "name": "query1",
                 "data_source": "metrics",
-                "query": "avg:kubernetes.memory.usage{app:keycloak} by {pod_name}"
+                "query": "avg:kubernetes.memory.usage{kube_deployment:keycloak} by {pod_name}"
               }
             ],
             "response_format": "timeseries",
@@ -1220,7 +1220,7 @@
               {
                 "name": "query1",
                 "data_source": "metrics",
-                "query": "sum:kubernetes.pods.running{app:keycloak}",
+                "query": "sum:kubernetes.pods.running{kube_deployment:keycloak}",
                 "aggregator": "last"
               }
             ],
@@ -1318,9 +1318,5 @@
       "default": "*"
     }
   ],
-  "reflow_type": "fixed",
-  "tags": [
-    "managed-by:terraform",
-    "service:keycloak"
-  ]
+  "reflow_type": "fixed"
 }

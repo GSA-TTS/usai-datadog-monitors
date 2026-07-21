@@ -29,8 +29,8 @@ Only resources **not** already managed by FCS Terraform (tagged `MCaaS - Managed
 - Model-backend dashboard (Bedrock + Azure OpenAI triage view) — **rolled out per-tenant** to every enabled org
 - Infrastructure-health monitors (2 log alerts: istio mTLS cert-signing, dd-trace agent telemetry-send) — **rolled out per-tenant** to every enabled org
 - App Health / Edge / Datadog-usage dashboards — **rolled out per-tenant** to every enabled org
-- Keycloak monitors (5 log alerts) — **aigov-only**, currently parked (see below)
-- Keycloak dashboard — **aigov-only**, currently parked (see below)
+- Keycloak monitors (5 log alerts) — **aigov-only**, managed by Terraform (see below)
+- Keycloak dashboard — **aigov-only**, managed by Terraform (see below)
 
 The infra monitors (Daily Log Index Usage, EMERGENCY istio proxy), the per-tenant
 Synthetics checks, and the generic API latency/error-rate alerts already present in
@@ -104,21 +104,23 @@ terraform apply
 
 ### aigov Keycloak monitors + dashboard
 
-The 5 aigov-specific Keycloak log alerts and the Keycloak dashboard live in
-`monitors.tf.aigov-pending` and `dashboard.tf.aigov-pending` (disabled — the
-`.aigov-pending` suffix means Terraform ignores them). They are aigov-only and are
-parked until aigov's secret is readable. See `providers.tf` for re-enable steps,
-including importing the existing resources so Terraform adopts rather than
-duplicates them:
+The 5 aigov-specific Keycloak log alerts and the Keycloak dashboard are **managed
+by Terraform** (`terraform/monitors.tf`, `terraform/dashboard.tf`), pointed at the
+`datadog.aigov` provider alias. aigov is the shared account and gets *only* these
+Keycloak assets — it does **not** get the per-tenant `model_backend_monitors`
+module. They were adopted from the pre-existing hand-created resources via
+`terraform import` (monitors 568525–568532, dashboard `g2g-uxq-vqh`), so no
+duplicates were created.
 
-```bash
-terraform import datadog_monitor.keycloak_login_failures_spike 568525
-terraform import datadog_monitor.keycloak_login_success_rate_drop 568526
-terraform import datadog_monitor.keycloak_invalid_credentials_spike 568528
-terraform import datadog_monitor.keycloak_active_users_drop 568529
-terraform import datadog_monitor.keycloak_top_failing_clients_spike 568532
-terraform import datadog_dashboard_json.keycloak g2g-uxq-vqh
-```
+Two **known-benign perpetual diffs** show up on every `plan` and can be applied or
+ignored (they never converge and represent no real drift):
+- Each monitor shows a `- assets { ... "Datadog Runbook" ... }` removal — Datadog
+  auto-attaches a runbook notebook link to every monitor after apply.
+- The dashboard shows `- notify_list = null` — an API round-trip artifact.
+
+The dashboard JSON carries **no `tags`** — the aigov org restricts dashboard-level
+tag keys to `team`/`ai` and rejects `managed-by:terraform`/`service:keycloak`
+(those tags live on the monitors instead, which have no such restriction).
 
 ### Required Permissions
 
