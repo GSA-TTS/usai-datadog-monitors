@@ -245,6 +245,41 @@ resource "datadog_dashboard" "infra_health" {
     }
   }
 
+  # ---- Section: Deployment Health --------------------------------------------
+  widget {
+    note_definition {
+      content          = "## Deployment Health\nDesired vs ready replicas per deployment. A **sustained** gap (desired > ready for 30m+) is the alerted signal (infra_monitors.tf: \"Deployment lacks minimum availability\") — a stuck rollout, an orphaned/superseded deployment that can't converge, or pods that won't schedule (missing secret, node pressure). A brief gap during a normal rolling update is expected and self-clears. Motivated by GSA-TTS/usai#896, where a legacy frontend-apps deployment sat un-ready for a day with no visibility."
+      background_color = "orange"
+      font_size        = "14"
+      text_align       = "left"
+      show_tick        = false
+    }
+  }
+
+  widget {
+    timeseries_definition {
+      title = "Unavailable replicas by deployment (desired − ready) — alerted in infra_monitors.tf"
+      request {
+        q            = "max:kubernetes_state.deployment.replicas_desired{*} by {kube_namespace,kube_deployment} - max:kubernetes_state.deployment.replicas_ready{*} by {kube_namespace,kube_deployment}"
+        display_type = "bars"
+      }
+      marker {
+        value        = "y = 1"
+        display_type = "warning dashed"
+        label        = "1 replica short"
+      }
+    }
+  }
+
+  widget {
+    toplist_definition {
+      title = "Deployments currently short of desired (top offenders, last 30m)"
+      request {
+        q = "top(max:kubernetes_state.deployment.replicas_desired{*} by {kube_namespace,kube_deployment} - max:kubernetes_state.deployment.replicas_ready{*} by {kube_namespace,kube_deployment}, 10, 'max', 'desc')"
+      }
+    }
+  }
+
   # ---- Section: DocumentDB (Mongo-compatible) --------------------------------
   widget {
     note_definition {
