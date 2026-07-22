@@ -232,3 +232,80 @@ resource "datadog_monitor" "deployment_unavailable" {
 
   tags = concat(local.base_tags, ["layer:kubernetes", "signal:deployment-availability"])
 }
+
+# Pod restart storm: a deployment whose pods are being replaced continuously
+# (every ~hour or faster) while the IMAGE never changes — restarts, not deploys.
+# Observed 2026-07-22 across doc/ftc core deployments: `chat` cycled ~348 pods
+# in 6h (doc) / 178 (ftc) vs ~8 on healthy gsa, with every `Pulled` event saying
+# "image already present" and static tags. The driver looked like an
+# external-secrets refresh -> reloader loop (hourly `ExternalSecret ... secret
+# updated` events fanning out rolling restarts), amplified by HPA rescales.
+#
+# Why age, not restarts: new pods start at 0 restarts, so
+# kubernetes_state.container.restarts stays flat and the storm is INVISIBLE to a
+# restart-count monitor (which is exactly why it went unalerted). The clean
+# discriminator is pod AGE — kube-state exposes kubernetes_state.pod.age, and a
+# deployment under a restart storm can never let its pods get old:
+#   healthy gsa chat    -> avg pod age ~159,000s (~44h), flat
+#   storm  doc/ftc chat -> avg pod age oscillates ~320-3,660s, time-avg ~1,700s
+# Also NOT caught by deployment_unavailable: the churning pods keep reaching
+# Ready between restarts, so desired-ready averages back below 1.
+#
+# We compare the AVERAGE pod age over a 4h window (not max): a genuine one-off
+# rollout ages out of the window quickly AND its pre-rollout pods (very old) drag
+# the window-average far above the threshold, so only *sustained* churn — pods
+# perpetually younger than ~1h across a 4h window — trips it. Grouped by
+# cluster+namespace+deployment so the alert names the offender and multi-cluster
+# orgs don't cross-aggregate.
+resource "datadog_monitor" "pod_restart_storm" {
+  name = "[${var.tenant}] Pod restart storm (deployment cycling pods, image unchanged)"
+  type = "query alert"
+
+  query = "avg(last_4h):avg:kubernetes_state.pod.age{*} by {kube_cluster_name,kube_namespace,kube_deployment} < 3600"
+
+  message = <<-EOT
+    {{#is_alert}}
+    Deployment {{kube_deployment.name}} in {{kube_namespace.name}} has been cycling its pods continuously — average pod age has stayed under 1 hour for the last 4 hours ({{value}}s). Healthy deployments age their pods to hours/days; this one is being restarted every ~hour or faster.
+
+    This is a restart STORM, not a deploy: check whether the image tag is actually changing (`kubectl get rs -n {{kube_namespace.name}}` — look for many ReplicaSets on the same image). Likely causes seen on 2026-07-22:
+    - external-secrets refreshing a Secret on a loop, with a reloader (Stakater / checksum annotation) restarting every workload that mounts it — even when the value didn't change.
+    - An HPA flapping replicas because it can't read CPU/mem off never-ready pods (FailedGetResourceMetric).
+
+    Correlate the `ExternalSecret ... secret updated` events and the deployment's ReplicaSet count. This is platform/app config (external-secrets + reloader), not a Datadog-monitors issue.
+    ${var.notification_channel}
+    {{/is_alert}}
+    {{#is_warning}}
+    {{kube_deployment.name}} in {{kube_namespace.name}} pods are averaging under 2h old ({{value}}s) — elevated pod churn. Watch for escalation to a full restart storm.
+    {{/is_warning}}
+    {{#is_recovery}}
+    Recovered: {{kube_deployment.name}} in {{kube_namespace.name}} pods are aging normally again — restart churn has stopped.
+    ${var.notification_channel}
+    {{/is_recovery}}
+
+    Tenant: ${var.tenant} @ Query: kubernetes_state.pod.age by deployment
+  EOT
+
+  # "less than" monitor: lower age = more churn = worse. critical fires when pods
+  # never age past 1h (severe continuous cycling); warning at 2h is early
+  # visibility only and gets no handle (per repo convention, warnings don't page).
+  # Recovery thresholds sit ABOVE the trigger (the non-alerting side) with wide
+  # hysteresis so a deployment that recovers to hours-old pods doesn't flap back.
+  monitor_thresholds {
+    critical          = 3600
+    critical_recovery = 10800
+    warning           = 7200
+    warning_recovery  = 14400
+  }
+
+  # A genuine storm persists; re-page at most every 2h. Groups evaluate
+  # independently so one churning deployment doesn't mask another.
+  renotify_interval = 120
+
+  # on_missing_data "default": a deployment that stops reporting age entirely is a
+  # different signal (scaled to zero / deleted), not a restart storm — don't page.
+  on_missing_data = "default"
+  include_tags    = true
+  notify_audit    = false
+
+  tags = concat(local.base_tags, ["layer:kubernetes", "signal:pod-restart-storm"])
+}
