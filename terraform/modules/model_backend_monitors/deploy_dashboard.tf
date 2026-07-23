@@ -201,7 +201,7 @@ resource "datadog_dashboard" "deployments" {
 
       widget {
         timeseries_definition {
-          title = "Memory: working set vs request vs limit (chat request 1000→1500Mi in PR #370)"
+          title = "Memory: working set vs request (chat request 1000→1500Mi in PR #370)"
           request {
             q            = "avg:kubernetes.memory.usage{$kube_namespace} by {kube_deployment}"
             display_type = "line"
