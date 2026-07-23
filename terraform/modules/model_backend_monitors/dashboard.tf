@@ -34,16 +34,17 @@ resource "datadog_dashboard" "model_backend" {
         q            = "avg:aws.bedrock.invocation_latency{$modelid} by {modelid}"
         display_type = "line"
       }
-      # Reference lines for the monitor thresholds (20s warn / 30s crit).
+      # Reference lines for the monitor thresholds (40s warn / 60s crit,
+      # bedrock_invocation_latency_high — refit to 60s/15m for the opus-4-8 mix).
       marker {
-        value        = "y = 20000"
+        value        = "y = 40000"
         display_type = "warning dashed"
-        label        = "warn 20s"
+        label        = "warn 40s"
       }
       marker {
-        value        = "y = 30000"
+        value        = "y = 60000"
         display_type = "error dashed"
-        label        = "crit 30s"
+        label        = "crit 60s"
       }
     }
   }
