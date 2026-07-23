@@ -19,25 +19,28 @@ locals {
 # ---------------------------------------------------------------------------
 
 resource "datadog_monitor" "bedrock_invocation_latency_high" {
-  name = "[${var.tenant}] Bedrock - Invocation Latency High (>45s avg, per model)"
+  name = "[${var.tenant}] Bedrock - Invocation Latency High (>60s avg, per model)"
   type = "metric alert"
-  # Avg invocation latency per model over 10m. 45s critical / 30s warning.
-  # Refit 2026-07-09: the original 30s bar was calibrated to the older/faster
-  # 2026-06-02 model mix and flapped constantly on the heavier reasoning models
-  # now in use (opus-4-8/4-7 legitimately run 20-30s). 45s is still well below
-  # the 88s+ user-visible collapse. Recovery hysteresis (35s/25s) stops the
-  # Warn<->OK<->Alert flap when avg latency hovers at the line.
-  query = "avg(last_10m):avg:aws.bedrock.invocation_latency{*} by {modelid} > 45000"
+  # Avg invocation latency per model over 15m. 60s critical / 40s warning.
+  # Refit 2026-07-10 (2nd pass): 45s/10m still flapped on doc/hud opus-4-8.
+  # CloudWatch shows that model AVERAGES ~16s but individual reasoning requests
+  # run 48-51s, so in a low-volume 5m window a couple of long calls drag the
+  # average over 45s and then back — real latency, but the inherent variance of
+  # a heavy reasoning model at low volume, not an incident. 60s over a 15m
+  # window smooths that: it takes a sustained cluster of slow calls (a true
+  # "stuck" state) to hold the 15m average above 60s. Still well under the 88s+
+  # user-visible collapse. Recovery hysteresis (50s/30s) prevents re-flap.
+  query = "avg(last_15m):avg:aws.bedrock.invocation_latency{*} by {modelid} > 60000"
 
   message = <<-EOT
     {{#is_alert}}
-    Bedrock model {{modelid.name}} average invocation latency has exceeded 45s over the last 10 minutes (current: {{value}} ms).
+    Bedrock model {{modelid.name}} average invocation latency has exceeded 60s over the last 15 minutes (current: {{value}} ms).
 
     This is the signature of the 2026-06-02 incident: requests succeed but very slowly, saturating app concurrency and collapsing throughput — with NO throttling reported by AWS. Likely a Bedrock model-serving slowdown. Check the model's region capacity and consider failover/load-shedding.
     ${var.notification_channel}
     {{/is_alert}}
     {{#is_warning}}
-    Bedrock model {{modelid.name}} average invocation latency is elevated (>30s over 10m, current {{value}} ms). Watch for further degradation. (No page — visible on the Model Backend dashboard.)
+    Bedrock model {{modelid.name}} average invocation latency is elevated (>40s over 15m, current {{value}} ms). Watch for further degradation. (No page — visible on the Model Backend dashboard.)
     {{/is_warning}}
     {{#is_alert_recovery}}
     Recovered: Bedrock model {{modelid.name}} invocation latency back below threshold (current {{value}} ms).
@@ -48,10 +51,10 @@ resource "datadog_monitor" "bedrock_invocation_latency_high" {
   EOT
 
   monitor_thresholds {
-    critical          = 45000
-    warning           = 30000
-    critical_recovery = 35000
-    warning_recovery  = 25000
+    critical          = 60000
+    warning           = 40000
+    critical_recovery = 50000
+    warning_recovery  = 30000
   }
 
   notify_no_data    = false
