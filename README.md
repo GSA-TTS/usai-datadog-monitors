@@ -46,7 +46,7 @@ leading indicator, not throttling.
 
 | Monitor | Signal | Critical |
 |---------|--------|----------|
-| `bedrock_invocation_latency_high` | avg latency per model (the incident's leading signal) | >30s over 10m |
+| `bedrock_invocation_latency_high` | avg latency per model (the incident's leading signal) | >60s over 15m |
 | `bedrock_invocation_throttles` | AWS rate-limiting (quota hit) | >5 in 5m |
 | `bedrock_server_errors` | 5xx from the model service | >5 in 5m |
 
