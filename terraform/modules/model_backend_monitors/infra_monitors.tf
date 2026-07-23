@@ -257,7 +257,8 @@ resource "datadog_monitor" "cronjob_failing" {
   # sum over the last hour of failed Job completions, grouped by
   # cluster+namespace+cronjob so the alert names the offender and multi-cluster
   # orgs don't cross-aggregate. as_count() so the rollup is a true occurrence
-  # count, not an averaged gauge. A healthy tenant reports 0 (gsa verified empty).
+  # count, not an averaged gauge. A healthy tenant stays well under the threshold
+  # (gsa runs ~2 sparse failed jobs/day — never 3+ in any single hour).
   query = "sum(last_1h):sum:kubernetes_state.job.completion.failed{*} by {kube_cluster_name,kube_namespace,kube_cronjob}.as_count() >= 3"
 
   message = <<-EOT
@@ -272,10 +273,10 @@ resource "datadog_monitor" "cronjob_failing" {
     Check the CronJob's recent Job objects and pod logs: `kubectl get jobs -n {{kube_namespace.name}}` and the events (`Reason: DeadlineExceeded` / `condition: Failed`). Find the last log line each run reaches — a run that always stops at the same step is stalling there.
     ${var.notification_channel}
     {{/is_alert}}
-    {{#is_recovery}}
+    {{#is_alert_recovery}}
     Recovered: {{kube_cronjob.name}} in {{kube_namespace.name}} is no longer accumulating failed runs.
     ${var.notification_channel}
-    {{/is_recovery}}
+    {{/is_alert_recovery}}
 
     Tenant: ${var.tenant} @ Query: kubernetes_state.job.completion.failed by cronjob
   EOT
