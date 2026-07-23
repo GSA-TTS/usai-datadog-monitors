@@ -232,3 +232,174 @@ resource "datadog_monitor" "deployment_unavailable" {
 
   tags = concat(local.base_tags, ["layer:kubernetes", "signal:deployment-availability"])
 }
+
+# Pod restart storm: a deployment whose pods are being replaced continuously
+# (every ~hour or faster) while the IMAGE never changes — restarts, not deploys.
+# Observed 2026-07-22 across doc/ftc core deployments: `chat` cycled ~348 pods
+# in 6h (doc) / 178 (ftc) vs ~8 on healthy gsa, with every `Pulled` event saying
+# "image already present" and static tags. The driver looked like an
+# external-secrets refresh -> reloader loop (hourly `ExternalSecret ... secret
+# updated` events fanning out rolling restarts), amplified by HPA rescales.
+#
+# Why age, not restarts: new pods start at 0 restarts, so
+# kubernetes_state.container.restarts stays flat and the storm is INVISIBLE to a
+# restart-count monitor (which is exactly why it went unalerted). The clean
+# discriminator is pod AGE — kube-state exposes kubernetes_state.pod.age, and a
+# deployment under a restart storm can never let its pods get old:
+#   healthy gsa chat    -> avg pod age ~159,000s (~44h), flat
+#   storm  doc/ftc chat -> avg pod age oscillates ~320-3,660s, time-avg ~1,700s
+# Also NOT caught by deployment_unavailable: the churning pods keep reaching
+# Ready between restarts, so desired-ready averages back below 1.
+#
+# Why MAX over the 4h window, not AVG (retuned 2026-07-23 after a fleet-wide
+# false-alarm flood): the v1 monitor used avg(last_4h) < 1h, on the assumption
+# that a one-off rollout's very-old pre-rollout pods would drag the window
+# average up. That assumption broke against the gsai-flux-mono "Problem 2"
+# churn: a shared HelmChart re-cuts its artifact on EVERY git commit, so the
+# whole fleet rolls ~1-2x per 4h and the baseline is never old — the average
+# stayed pinned under 1h for hours and paged all ~38 deployments across all 25
+# orgs at once (~150 emails) on 2026-07-23 for what was a single synchronized
+# rollout, not a storm.
+#
+# The robust discriminator is the MAX avg-pod-age reached anywhere in the window.
+# A one-off (or even double) rollout lets its pods age monotonically afterward,
+# so max climbs well past 2h; a genuine storm resets pods faster than they can
+# age, so max stays pinned near the churn interval. Empirically verified against
+# the real sss/chat storm (07-22) vs the Problem-2 rollout (07-23):
+#   real storm       -> max avg-age over 4h ~3,800-3,900s  (~1.06h) -> FIRES
+#   1-2x flux rollout -> max avg-age over 4h  >= 8,110s     (>=2.25h) -> ok
+#   healthy/aged      -> max avg-age over 4h  57,000-230,000s        -> ok
+# Clean ~2x gap; the 5,400s (90m) threshold sits inside it. Because a single
+# synchronized rollout no longer trips ANY group, this also removes the
+# cross-org email flood at its source (there is no cross-org notification
+# rollup — each tenant is an isolated Datadog org — so suppressing the trigger
+# is the only aggregation available). A real storm stays localized (07-22 hit
+# ~2 deployments on doc/ftc), so its per-group pages remain low-volume.
+# Grouped by cluster+namespace+deployment so the alert names the offender and
+# multi-cluster orgs don't cross-aggregate.
+resource "datadog_monitor" "pod_restart_storm" {
+  name = "[${var.tenant}] Pod restart storm (deployment cycling pods, image unchanged)"
+  type = "query alert"
+
+  query = "max(last_4h):avg:kubernetes_state.pod.age{*} by {kube_cluster_name,kube_namespace,kube_deployment} < 5400"
+
+  message = <<-EOT
+    {{#is_alert}}
+    Deployment {{kube_deployment.name}} in {{kube_namespace.name}} has been cycling its pods continuously — across the last 4 hours its pods never aged past 90 minutes ({{value}}s peak). Healthy deployments age their pods to hours/days, and even a one-off rollout ages its new pods past 2h within the window; this one is being restarted faster than its pods can age.
+
+    This is a restart STORM, not a deploy: check whether the image tag is actually changing (`kubectl get rs -n {{kube_namespace.name}}` — look for many ReplicaSets on the same image). Likely causes seen on 2026-07-22:
+    - external-secrets refreshing a Secret on a loop, with a reloader (Stakater / checksum annotation) restarting every workload that mounts it — even when the value didn't change.
+    - An HPA flapping replicas because it can't read CPU/mem off never-ready pods (FailedGetResourceMetric).
+
+    Correlate the `ExternalSecret ... secret updated` events and the deployment's ReplicaSet count. This is platform/app config (external-secrets + reloader), not a Datadog-monitors issue.
+    ${var.notification_channel}
+    {{/is_alert}}
+    {{#is_warning}}
+    {{kube_deployment.name}} in {{kube_namespace.name}} pods are averaging under 2h old ({{value}}s) — elevated pod churn. Watch for escalation to a full restart storm.
+    {{/is_warning}}
+    {{#is_alert_recovery}}
+    Recovered: {{kube_deployment.name}} in {{kube_namespace.name}} pods are aging normally again — restart churn has stopped.
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
+
+    Tenant: ${var.tenant} @ Query: kubernetes_state.pod.age by deployment
+  EOT
+
+  # "less than" monitor on the MAX avg-age over the window: lower peak age = pods
+  # can't age = storm. critical fires when pods never peak past 90m across 4h
+  # (5,400s — inside the empirical storm/rollout gap of ~3,900s..8,110s); warning
+  # at 2h (7,200s, still below the ~8,110s single-rollout floor) is early
+  # visibility only and gets no handle (per repo convention, warnings don't page).
+  # Recovery thresholds sit ABOVE the trigger (the non-alerting side) with wide
+  # hysteresis so a deployment that recovers to hours-old pods doesn't flap back.
+  monitor_thresholds {
+    critical          = 5400
+    critical_recovery = 10800
+    warning           = 7200
+    warning_recovery  = 14400
+  }
+
+  # A genuine storm persists; re-page at most every 2h. Groups evaluate
+  # independently so one churning deployment doesn't mask another.
+  renotify_interval = 120
+
+  # on_missing_data "default": a deployment that stops reporting age entirely is a
+  # different signal (scaled to zero / deleted), not a restart storm — don't page.
+  on_missing_data = "default"
+  include_tags    = true
+  notify_audit    = false
+
+  tags = concat(local.base_tags, ["layer:kubernetes", "signal:pod-restart-storm"])
+}
+
+# CronJob / batch-job failure: a scheduled job whose runs keep failing (or keep
+# hitting their activeDeadlineSeconds) shows up as repeated failed Job objects
+# under one CronJob. kube-state-metrics exposes this as
+# kubernetes_state.job.completion.failed (one per failed run). We deliberately do
+# NOT key off cronjob.last_successful_time / .next_schedule_time: those series are
+# NOT populated in these clusters' kube-state-metrics (verified empty on doc/gsa),
+# so a "time since last success" monitor would silently never fire. Counting
+# failed runs over a rolling window is the signal that's actually present.
+#
+# A single failed run can be a transient blip (backoffLimit retries clear it), so
+# we only page when failures accumulate over an hour — that separates a one-off
+# from a job that is genuinely broken every schedule.
+#
+# Motivated by doc console-data (2026-07-22): the weekly-ship-data CronJob stalled
+# in its S3 log-redaction step and DeadlineExceeded on EVERY run for 14+ days
+# (~20-40 failed jobs/day, spiking to 742 in a day) with ZERO alerting — found
+# only by reading the events by hand. Same silent-failure class as #896.
+resource "datadog_monitor" "cronjob_failing" {
+  name = "[${var.tenant}] CronJob runs failing (scheduled job broken / DeadlineExceeded)"
+  type = "query alert"
+
+  # sum over the last hour of failed Job completions, grouped by
+  # cluster+namespace+cronjob so the alert names the offender and multi-cluster
+  # orgs don't cross-aggregate. as_count() so the rollup is a true occurrence
+  # count, not an averaged gauge. A healthy tenant stays well under the threshold
+  # (gsa runs ~2 sparse failed jobs/day — never 3+ in any single hour).
+  query = "sum(last_1h):sum:kubernetes_state.job.completion.failed{*} by {kube_cluster_name,kube_namespace,kube_cronjob}.as_count() >= 3"
+
+  message = <<-EOT
+    {{#is_alert}}
+    CronJob {{kube_cronjob.name}} in {{kube_namespace.name}} has had {{value}} failed runs in the last hour — its scheduled runs are failing repeatedly (not a one-off).
+
+    This is a job that is broken every schedule, not a transient blip. Likely causes:
+    - The job exceeds its `activeDeadlineSeconds` and is killed mid-run (a step that hangs — e.g. a slow/blocked S3 or DB operation, or a backlog too large for the deadline)
+    - A crash / unhandled exception on startup
+    - Missing config/secret or an image-pull error on the current tag
+
+    Check the CronJob's recent Job objects and pod logs: `kubectl get jobs -n {{kube_namespace.name}}` and the events (`Reason: DeadlineExceeded` / `condition: Failed`). Find the last log line each run reaches — a run that always stops at the same step is stalling there.
+    ${var.notification_channel}
+    {{/is_alert}}
+    {{#is_alert_recovery}}
+    Recovered: {{kube_cronjob.name}} in {{kube_namespace.name}} is no longer accumulating failed runs.
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
+
+    Tenant: ${var.tenant} @ Query: kubernetes_state.job.completion.failed by cronjob
+  EOT
+
+  monitor_thresholds {
+    critical          = 3
+    critical_recovery = 0
+    warning           = 1
+    # no warning handle below: a single failed run warns quietly (no page) so a
+    # transient blip is visible on the monitor without waking anyone.
+    warning_recovery = 0
+  }
+
+  # A broken CronJob keeps failing every schedule; re-page at most every 2h rather
+  # than on each failed run. Groups evaluate independently so one bad job doesn't
+  # mask another.
+  renotify_interval = 120
+
+  # on_missing_data "default" = do nothing when no failed-job series reports, which
+  # is the healthy state (no failures = no series). Avoids a false page when a
+  # tenant simply has no failing jobs.
+  on_missing_data = "default"
+  include_tags    = true
+  notify_audit    = false
+
+  tags = concat(local.base_tags, ["layer:kubernetes", "signal:cronjob-failure"])
+}

@@ -54,3 +54,12 @@ Lessons baked in from PR #22 (self-review checklist for any monitor work):
 - **`event-v2 alert` monitors don't render a time-series graph** on the monitor
   page (Datadog UI limitation) — pair them with dashboard `event_timeline` /
   `event_stream` widgets for visual history. (GitHub #21.)
+- **Any monitor with a handle-less warn tier must use `{{#is_alert_recovery}}`,
+  never bare `{{#is_recovery}}`, around the notification handle.**
+  `{{#is_recovery}}` fires on OK from *either* the alert OR the warning tier — so
+  if `warning` is set with no handle (a deliberately quiet warn), a WARN→OK
+  transition still renders the recovery block and pings the channel. That's the
+  same asymmetric-noise flood class as the bare-handle bug (PR #22). Caught in
+  code review on the CronJob monitor (PR #28). `{{#is_alert_recovery}}` fires only
+  after a real (critical) page recovers. A monitor with no warn tier (e.g.
+  `deployment_unavailable`) can use `{{#is_recovery}}` safely.
