@@ -7,7 +7,7 @@
 # sources (the DD api/app keys), a datadog provider alias authed with those
 # keys, and one module call. Add/remove a tenant by adding/removing its block.
 #
-# ENABLED TENANTS = 23 (original 7 + 16 unblocked 2026-07-09).
+# ENABLED TENANTS = 25 (original 7 + 16 unblocked 2026-07-09 + nsf, eeoc 2026-07-22).
 # aigov is the shared account: it does NOT get the per-tenant model_backend
 # monitors module, but its Keycloak monitors + dashboard ARE managed here (see
 # the aigov provider block below + monitors.tf / dashboard.tf). gsai blocked
@@ -823,6 +823,76 @@ module "usda" {
   providers = { datadog = datadog.usda }
 
   tenant               = "usda"
+  notification_channel = var.notification_channel
+}
+
+# ---- nsf --------------------------------------------------------------------
+# Sub-account under aigov (like doli): SSO profile is aigov-nsf, but the DD
+# secrets keep the standard usai- prefix (unlike doli's bare names).
+provider "aws" {
+  alias   = "nsf"
+  region  = "us-east-1"
+  profile = "aigov-nsf"
+}
+
+data "aws_secretsmanager_secret_version" "nsf_api" {
+  provider  = aws.nsf
+  secret_id = "usai-nsf-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "nsf_app" {
+  provider  = aws.nsf
+  secret_id = "usai-nsf-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "nsf"
+  api_key  = data.aws_secretsmanager_secret_version.nsf_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.nsf_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "nsf" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.nsf }
+
+  tenant               = "nsf"
+  notification_channel = var.notification_channel
+}
+
+# ---- eeoc -------------------------------------------------------------------
+# Sub-account under aigov (like doli): SSO profile is aigov-eeoc, but the DD
+# secrets keep the standard usai- prefix (unlike doli's bare names).
+provider "aws" {
+  alias   = "eeoc"
+  region  = "us-east-1"
+  profile = "aigov-eeoc"
+}
+
+data "aws_secretsmanager_secret_version" "eeoc_api" {
+  provider  = aws.eeoc
+  secret_id = "usai-eeoc-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "eeoc_app" {
+  provider  = aws.eeoc
+  secret_id = "usai-eeoc-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "eeoc"
+  api_key  = data.aws_secretsmanager_secret_version.eeoc_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.eeoc_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "eeoc" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.eeoc }
+
+  tenant               = "eeoc"
   notification_channel = var.notification_channel
 }
 
