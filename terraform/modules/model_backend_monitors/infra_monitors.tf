@@ -297,10 +297,10 @@ resource "datadog_monitor" "pod_restart_storm" {
     {{#is_warning}}
     {{kube_deployment.name}} in {{kube_namespace.name}} pods are averaging under 2h old ({{value}}s) — elevated pod churn. Watch for escalation to a full restart storm.
     {{/is_warning}}
-    {{#is_recovery}}
+    {{#is_alert_recovery}}
     Recovered: {{kube_deployment.name}} in {{kube_namespace.name}} pods are aging normally again — restart churn has stopped.
     ${var.notification_channel}
-    {{/is_recovery}}
+    {{/is_alert_recovery}}
 
     Tenant: ${var.tenant} @ Query: kubernetes_state.pod.age by deployment
   EOT
@@ -330,4 +330,76 @@ resource "datadog_monitor" "pod_restart_storm" {
   notify_audit    = false
 
   tags = concat(local.base_tags, ["layer:kubernetes", "signal:pod-restart-storm"])
+}
+
+# CronJob / batch-job failure: a scheduled job whose runs keep failing (or keep
+# hitting their activeDeadlineSeconds) shows up as repeated failed Job objects
+# under one CronJob. kube-state-metrics exposes this as
+# kubernetes_state.job.completion.failed (one per failed run). We deliberately do
+# NOT key off cronjob.last_successful_time / .next_schedule_time: those series are
+# NOT populated in these clusters' kube-state-metrics (verified empty on doc/gsa),
+# so a "time since last success" monitor would silently never fire. Counting
+# failed runs over a rolling window is the signal that's actually present.
+#
+# A single failed run can be a transient blip (backoffLimit retries clear it), so
+# we only page when failures accumulate over an hour — that separates a one-off
+# from a job that is genuinely broken every schedule.
+#
+# Motivated by doc console-data (2026-07-22): the weekly-ship-data CronJob stalled
+# in its S3 log-redaction step and DeadlineExceeded on EVERY run for 14+ days
+# (~20-40 failed jobs/day, spiking to 742 in a day) with ZERO alerting — found
+# only by reading the events by hand. Same silent-failure class as #896.
+resource "datadog_monitor" "cronjob_failing" {
+  name = "[${var.tenant}] CronJob runs failing (scheduled job broken / DeadlineExceeded)"
+  type = "query alert"
+
+  # sum over the last hour of failed Job completions, grouped by
+  # cluster+namespace+cronjob so the alert names the offender and multi-cluster
+  # orgs don't cross-aggregate. as_count() so the rollup is a true occurrence
+  # count, not an averaged gauge. A healthy tenant stays well under the threshold
+  # (gsa runs ~2 sparse failed jobs/day — never 3+ in any single hour).
+  query = "sum(last_1h):sum:kubernetes_state.job.completion.failed{*} by {kube_cluster_name,kube_namespace,kube_cronjob}.as_count() >= 3"
+
+  message = <<-EOT
+    {{#is_alert}}
+    CronJob {{kube_cronjob.name}} in {{kube_namespace.name}} has had {{value}} failed runs in the last hour — its scheduled runs are failing repeatedly (not a one-off).
+
+    This is a job that is broken every schedule, not a transient blip. Likely causes:
+    - The job exceeds its `activeDeadlineSeconds` and is killed mid-run (a step that hangs — e.g. a slow/blocked S3 or DB operation, or a backlog too large for the deadline)
+    - A crash / unhandled exception on startup
+    - Missing config/secret or an image-pull error on the current tag
+
+    Check the CronJob's recent Job objects and pod logs: `kubectl get jobs -n {{kube_namespace.name}}` and the events (`Reason: DeadlineExceeded` / `condition: Failed`). Find the last log line each run reaches — a run that always stops at the same step is stalling there.
+    ${var.notification_channel}
+    {{/is_alert}}
+    {{#is_alert_recovery}}
+    Recovered: {{kube_cronjob.name}} in {{kube_namespace.name}} is no longer accumulating failed runs.
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
+
+    Tenant: ${var.tenant} @ Query: kubernetes_state.job.completion.failed by cronjob
+  EOT
+
+  monitor_thresholds {
+    critical          = 3
+    critical_recovery = 0
+    warning           = 1
+    # no warning handle below: a single failed run warns quietly (no page) so a
+    # transient blip is visible on the monitor without waking anyone.
+    warning_recovery = 0
+  }
+
+  # A broken CronJob keeps failing every schedule; re-page at most every 2h rather
+  # than on each failed run. Groups evaluate independently so one bad job doesn't
+  # mask another.
+  renotify_interval = 120
+
+  # on_missing_data "default" = do nothing when no failed-job series reports, which
+  # is the healthy state (no failures = no series). Avoids a false page when a
+  # tenant simply has no failing jobs.
+  on_missing_data = "default"
+  include_tags    = true
+  notify_audit    = false
+
+  tags = concat(local.base_tags, ["layer:kubernetes", "signal:cronjob-failure"])
 }
