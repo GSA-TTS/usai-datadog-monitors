@@ -251,21 +251,41 @@ resource "datadog_monitor" "deployment_unavailable" {
 # Also NOT caught by deployment_unavailable: the churning pods keep reaching
 # Ready between restarts, so desired-ready averages back below 1.
 #
-# We compare the AVERAGE pod age over a 4h window (not max): a genuine one-off
-# rollout ages out of the window quickly AND its pre-rollout pods (very old) drag
-# the window-average far above the threshold, so only *sustained* churn — pods
-# perpetually younger than ~1h across a 4h window — trips it. Grouped by
-# cluster+namespace+deployment so the alert names the offender and multi-cluster
-# orgs don't cross-aggregate.
+# Why MAX over the 4h window, not AVG (retuned 2026-07-23 after a fleet-wide
+# false-alarm flood): the v1 monitor used avg(last_4h) < 1h, on the assumption
+# that a one-off rollout's very-old pre-rollout pods would drag the window
+# average up. That assumption broke against the gsai-flux-mono "Problem 2"
+# churn: a shared HelmChart re-cuts its artifact on EVERY git commit, so the
+# whole fleet rolls ~1-2x per 4h and the baseline is never old — the average
+# stayed pinned under 1h for hours and paged all ~38 deployments across all 25
+# orgs at once (~150 emails) on 2026-07-23 for what was a single synchronized
+# rollout, not a storm.
+#
+# The robust discriminator is the MAX avg-pod-age reached anywhere in the window.
+# A one-off (or even double) rollout lets its pods age monotonically afterward,
+# so max climbs well past 2h; a genuine storm resets pods faster than they can
+# age, so max stays pinned near the churn interval. Empirically verified against
+# the real sss/chat storm (07-22) vs the Problem-2 rollout (07-23):
+#   real storm       -> max avg-age over 4h ~3,800-3,900s  (~1.06h) -> FIRES
+#   1-2x flux rollout -> max avg-age over 4h  >= 8,110s     (>=2.25h) -> ok
+#   healthy/aged      -> max avg-age over 4h  57,000-230,000s        -> ok
+# Clean ~2x gap; the 5,400s (90m) threshold sits inside it. Because a single
+# synchronized rollout no longer trips ANY group, this also removes the
+# cross-org email flood at its source (there is no cross-org notification
+# rollup — each tenant is an isolated Datadog org — so suppressing the trigger
+# is the only aggregation available). A real storm stays localized (07-22 hit
+# ~2 deployments on doc/ftc), so its per-group pages remain low-volume.
+# Grouped by cluster+namespace+deployment so the alert names the offender and
+# multi-cluster orgs don't cross-aggregate.
 resource "datadog_monitor" "pod_restart_storm" {
   name = "[${var.tenant}] Pod restart storm (deployment cycling pods, image unchanged)"
   type = "query alert"
 
-  query = "avg(last_4h):avg:kubernetes_state.pod.age{*} by {kube_cluster_name,kube_namespace,kube_deployment} < 3600"
+  query = "max(last_4h):avg:kubernetes_state.pod.age{*} by {kube_cluster_name,kube_namespace,kube_deployment} < 5400"
 
   message = <<-EOT
     {{#is_alert}}
-    Deployment {{kube_deployment.name}} in {{kube_namespace.name}} has been cycling its pods continuously — average pod age has stayed under 1 hour for the last 4 hours ({{value}}s). Healthy deployments age their pods to hours/days; this one is being restarted every ~hour or faster.
+    Deployment {{kube_deployment.name}} in {{kube_namespace.name}} has been cycling its pods continuously — across the last 4 hours its pods never aged past 90 minutes ({{value}}s peak). Healthy deployments age their pods to hours/days, and even a one-off rollout ages its new pods past 2h within the window; this one is being restarted faster than its pods can age.
 
     This is a restart STORM, not a deploy: check whether the image tag is actually changing (`kubectl get rs -n {{kube_namespace.name}}` — look for many ReplicaSets on the same image). Likely causes seen on 2026-07-22:
     - external-secrets refreshing a Secret on a loop, with a reloader (Stakater / checksum annotation) restarting every workload that mounts it — even when the value didn't change.
@@ -285,13 +305,15 @@ resource "datadog_monitor" "pod_restart_storm" {
     Tenant: ${var.tenant} @ Query: kubernetes_state.pod.age by deployment
   EOT
 
-  # "less than" monitor: lower age = more churn = worse. critical fires when pods
-  # never age past 1h (severe continuous cycling); warning at 2h is early
+  # "less than" monitor on the MAX avg-age over the window: lower peak age = pods
+  # can't age = storm. critical fires when pods never peak past 90m across 4h
+  # (5,400s — inside the empirical storm/rollout gap of ~3,900s..8,110s); warning
+  # at 2h (7,200s, still below the ~8,110s single-rollout floor) is early
   # visibility only and gets no handle (per repo convention, warnings don't page).
   # Recovery thresholds sit ABOVE the trigger (the non-alerting side) with wide
   # hysteresis so a deployment that recovers to hours-old pods doesn't flap back.
   monitor_thresholds {
-    critical          = 3600
+    critical          = 5400
     critical_recovery = 10800
     warning           = 7200
     warning_recovery  = 14400
