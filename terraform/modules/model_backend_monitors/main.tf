@@ -24,7 +24,7 @@ resource "datadog_monitor" "bedrock_invocation_latency_high" {
   # Avg invocation latency per model over 15m. 60s critical / 40s warning.
   # Refit 2026-07-10 (2nd pass): 45s/10m still flapped on doc/hud opus-4-8.
   # CloudWatch shows that model AVERAGES ~16s but individual reasoning requests
-  # run 48-51s, so in a low-volume 5m window a couple of long calls drag the
+  # run 48-51s, so in a low-volume 10m window a couple of long calls drag the
   # average over 45s and then back — real latency, but the inherent variance of
   # a heavy reasoning model at low volume, not an incident. 60s over a 15m
   # window smooths that: it takes a sustained cluster of slow calls (a true
