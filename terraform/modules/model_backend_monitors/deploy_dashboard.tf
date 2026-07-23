@@ -40,7 +40,7 @@ resource "datadog_dashboard" "deployments" {
 
       widget {
         note_definition {
-          content          = "The clean restart-storm discriminator. Healthy deployments age their pods to hours/days; a deployment being continuously replaced can never let its pods get old. The **avg pod age** dropping and staying under the 1h line is the `pod_restart_storm` alert signal (infra_monitors.tf) — restart-count is blind to this because fresh pods start at 0 restarts. **Active ReplicaSets**: many concurrent ReplicaSets on one deployment = repeated rollouts (the Problem 2 signature — chart re-cut on every git revision)."
+          content          = "The clean restart-storm discriminator. Healthy deployments age their pods to hours/days; a deployment being continuously replaced can never let its pods get old. The `pod_restart_storm` alert (infra_monitors.tf) fires when the **peak** avg pod age over a 4h window never climbs past 90m — so this line hugging or staying under the 90m marker is the alert signal (restart-count is blind to this because fresh pods start at 0 restarts). **Active ReplicaSets**: many concurrent ReplicaSets on one deployment = repeated rollouts (the Problem 2 signature — chart re-cut on every git revision)."
           background_color = "orange"
           font_size        = "14"
           text_align       = "left"
@@ -50,20 +50,20 @@ resource "datadog_dashboard" "deployments" {
 
       widget {
         timeseries_definition {
-          title = "Average pod age by deployment — sustained < 1h = restart storm (alerted)"
+          title = "Average pod age by deployment — peak-over-4h < 90m = restart storm (alerted)"
           request {
             q            = "avg:kubernetes_state.pod.age{$kube_namespace} by {kube_deployment}"
             display_type = "line"
           }
           marker {
-            value        = "y = 3600"
+            value        = "y = 5400"
             display_type = "error dashed"
-            label        = "1h — restart-storm threshold"
+            label        = "90m — restart-storm threshold (critical)"
           }
           marker {
             value        = "y = 7200"
             display_type = "warning dashed"
-            label        = "2h — elevated churn"
+            label        = "2h — elevated churn (warning)"
           }
         }
       }
@@ -71,14 +71,15 @@ resource "datadog_dashboard" "deployments" {
       widget {
         toplist_definition {
           title = "Youngest pods right now, in minutes (deployments most likely cycling)"
-          # pod.age is in seconds; /60 -> minutes so the value is legible (a storm
-          # keeps deployments in the ~3-60 min range). 'asc' surfaces the smallest
+          # pod.age is in seconds; /60 -> minutes so the value is legible. Colors
+          # track the pod_restart_storm markers: < 90m (critical threshold) red,
+          # < 120m (warning) yellow, >= 120m green. 'asc' surfaces the smallest
           # (youngest) first — the ones being replaced most aggressively.
           request {
             q = "top(avg:kubernetes_state.pod.age{$kube_namespace} by {kube_namespace,kube_deployment} / 60, 10, 'last', 'asc')"
             conditional_formats {
               comparator = "<"
-              value      = 60
+              value      = 90
               palette    = "white_on_red"
             }
             conditional_formats {
