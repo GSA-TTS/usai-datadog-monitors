@@ -8,7 +8,11 @@ issue or be explicitly closed with a reason.
 | 1 | Onboard 16 tag-blocked tenants once DD secrets are tagged `Environment=production` | Retro v0.1.0 | #5 | Closed | Resolved PR #19: 16 tenants onboarded (gsai KMS-blocked, disa no SSO, aigov excluded by request) |
 | 2 | Add self-review checklist item — wire Datadog `template_variable` into query scopes | Retro v0.1.0 (PR #4, recurred PR #8) | #6 | Closed | Added "Datadog dashboard conventions" to CLAUDE.md (PR #9) |
 | 3 | Add stacked-PR pre-merge safety check to pipeline workflow | Retro v0.2.0 (PR #18) | #20 | Open | Detect stacked PRs and retarget child before merging base |
-| 4 | Document `event-v2 alert` monitor graph limitation in CLAUDE.md | Retro v0.2.0 (PR #19) | #21 | Open | Pair event-v2 monitors with dashboard widgets for visual history |
+| 4 | Document `event-v2 alert` monitor graph limitation in CLAUDE.md | Retro v0.2.0 (PR #19) | #21 | Closed | Resolved: added to CLAUDE.md "Datadog monitor conventions" (commit 3ebb0ab, PR #22 milestone). GitHub #21 to close. |
+| 5 | Self-review checklist item — notification handle scoped to is_alert/is_alert_recovery | Retro v0.2.0 (PR #22) | #23 | Closed | Resolved this milestone: CLAUDE.md "Datadog monitor conventions" bare-handle rule (commit 3ebb0ab) + is_recovery/is_alert_recovery handle-less-warn rule (547505a, PR #28). GitHub #23 to close. |
+| 6 | Extract monitor thresholds to shared `locals` (pod-storm + Bedrock latency) | Retro v0.3.0 (PRs #29/#30/#31) | #33 | Open | Every threshold lives in 3-5 unbound places; derive from shared locals so a refit is one line |
+| 7 | Apply live only after merge (avoid cross-PR ordering + conflict tax) | Retro v0.3.0 (PRs #28/#29/#32) | #34 | Open | Live-first orphaned nsf/eeoc providers + collided file appends |
+| 8 | CHANGELOG fragment files to end the `### Added` collision | Retro v0.3.0 (PRs #29/#30/#32) | #35 | Open | Four consecutive PRs paid the three-way-merge tax on the shared list head |
 
 ## v0.1.0 — Multi-tenant model-backend monitoring (PRs #1–#4)
 
@@ -190,9 +194,128 @@ template_variable wiring, env:production scoping, signal sourcing, duration unit
 
 ### Open Items
 
-- [ ] Document `event-v2 alert` graph limitation — Action Tracker #4 (GitHub #21)
-- [ ] Add stacked-PR pre-merge check to pipeline workflow — Action Tracker #3 (GitHub #20)
+- [x] Document `event-v2 alert` graph limitation — Action Tracker #4 (GitHub #21) — resolved in v0.3.0: added to CLAUDE.md "Datadog monitor conventions" (commit 3ebb0ab, PR #22 milestone)
+- [ ] Add stacked-PR pre-merge check to pipeline workflow — Action Tracker #3 (GitHub #20) — still open
 - [x] Onboard blocked tenants — Action Tracker #1 (GitHub #5) — resolved: 16 tenants onboarded PR #19 (gsai KMS-blocked, disa no SSO, aigov excluded)
+
+## v0.3.0 — Noise reduction + infra-health monitors + 25-tenant fleet (PRs #22–#32)
+
+**Date**: 2026-07-23
+**Scope**: Shifted from *building* observability (v0.2.0) to *tuning* it and
+closing alerting gaps. Killed Slack alert flapping across the fleet (Bedrock/Azure
+handle-scoping + rate-vs-count), added Kubernetes workload-health monitors
+(deployment-availability, CronJob-failure, pod-restart-storm) each grounded in a
+real unalerted incident, brought aigov Keycloak under Terraform via import-adopt,
+added the Deployments & Rollouts dashboard, refit the Bedrock latency bar for the
+opus-4-8 mix (30s→45s→60s/15m), and onboarded nsf/eeoc to reach **25 enabled
+tenant orgs**. Closed with a batched live apply of all merged changes across the
+fleet (106 in-place updates, 0 destroys).
+
+**Tests at close**: `terraform validate` + `fmt -check` green; `terraform plan`
+converged to only the two known-benign perpetual aigov diffs after the fleet apply.
+
+### What We Learned
+
+**1. A monitor-notification convention went bug → codified rule → caught-by-rule inside one milestone.**
+The bare-`@handle` flood (fires on every state transition) shipped in v0.1.0 and
+rode into 23 orgs before PR #22 caught it. PR #28's code review then found the
+sibling bug — a handle-less warn tier with a bare `{{#is_recovery}}` recovery block
+pings Slack on WARN→OK. The rule was written into CLAUDE.md between #28 and #29,
+and on PR #29 self-review caught the *exact same* bug in `pod_restart_storm` by
+reading the diff against the codified rule — not by luck. This is the payoff loop
+of the retro process working: a review catch became a convention became a
+self-review gate.
+
+**Action taken**: Updated /Users/johnrtipton/usai_projects/usai-datadog-monitors/CLAUDE.md — section "Datadog monitor conventions" (commits 3ebb0ab, 547505a) with the bare-handle rule and the `{{#is_recovery}}` vs `{{#is_alert_recovery}}` distinction for handle-less warn tiers.
+
+**2. Hardcoded thresholds drift because nothing binds their 3–5 copies.**
+Every monitor threshold is duplicated across the monitor query, the monitor
+`monitor_thresholds` block, dashboard reference-line markers, the README table,
+and the CHANGELOG. Three consecutive PRs surfaced a desync: #29's pod-storm retune
+left #30's dashboard markers describing the old `avg < 1h` value; #31's Bedrock
+refit found the dashboard markers and README table stale *two refits behind* (still
+on the original 30s bar). Each was caught and hand-synced, but the risk is
+structural — a future retune will silently half-apply again.
+
+**Action taken**: Open — tracked in Action Tracker #6 (GitHub #33).
+
+**3. Live-first apply ordering created cross-PR merge conflicts and a 4-PR deferred-apply chain.**
+Monitors were applied live before source review/merge, so the live state referenced
+nsf/eeoc providers that didn't exist on main until #32 — orphaning any targeted
+apply and forcing #28/#29/#30/#31's live re-applies to batch behind #32. Separately,
+#28 and #29 both appended to the same files and collided the instant #28 merged.
+Applying live only *after* merge would have avoided both the interim buggy live
+state and the ordering dependency.
+
+**Action taken**: Open — tracked in Action Tracker #7 (GitHub #34).
+
+**4. The CHANGELOG `### Added` three-way collision hit four consecutive PRs.**
+Every monitor/dashboard PR appends to the same list head, so each one conflicts the
+moment a sibling merges (#29, #30, #32, and any Added-section PR). This is now a
+standing tax, not a nuisance — resolvable in seconds but paid every time.
+
+**Action taken**: Open — tracked in Action Tracker #8 (GitHub #35).
+
+**5. PR #24 shipped with no retrospective — a retro-artifact gate violation.**
+The deployment-availability monitor merged (2026-07-21) with no `RETRO_COMPLETE`
+comment on the PR. The gap went unnoticed until this milestone retro scanned all 8
+PRs. The synthesis above is its backfill.
+
+**Action taken**: Closed — retro backfilled to PR #24 as a Stage-10-equivalent comment during this milestone retro (Stage 4).
+
+### Insights
+
+- **Every new monitor this milestone was grounded in a specific unalerted incident**
+  (CronJob `DeadlineExceeded` 14 days silent → #28; frontend-apps sub-minimum for a
+  day → #24; doc/ftc restart storm ~348 pods/6h → #29). Sourcing a monitor from a
+  real miss, then calibrating its threshold against that incident's ground-truth
+  numbers, produced monitors that demonstrably fire on the incident and stay quiet
+  on healthy tenants — far better than picking a round number.
+- **When two in-flight PRs cross-reference each other's thresholds, the second to
+  merge must re-verify the first's *shipped* values, not the values it was written
+  against.** #30's dashboard was written against #29's pre-retune threshold; only a
+  cross-PR staleness check in self-review caught it.
+- **Verify resource existence by name/query, not by the tag you intend to add.**
+  #27's plan claimed the 5 Keycloak monitors were absent because they were untagged;
+  they existed hand-created, and `apply` hit duplicate-ID errors. The "stale" README
+  import IDs were correct all along. Choose create-vs-import from live reality.
+- **`max`-over-window discriminates a restart storm from a rollout** where `avg`
+  can't: a one-off rollout ages its new pods monotonically past the window ceiling,
+  while a storm pins the peak near the churn interval. Empirically-grounded
+  thresholds beat guessed ones — the 5,400s bar sits in a clean ~2× gap between a
+  real storm (~3.9k s) and a fleet rollout (≥8.1k s).
+- **The batched fleet apply was lower-risk than it looked** because query/threshold
+  changes were already live from earlier applies; the apply reduced to notification-
+  block convention fixes + cosmetic dashboard marker syncs. Re-plan converged to
+  only the two documented benign aigov diffs — clean audit trail.
+
+### Review Stats
+
+| Metric | #22 | #24 | #27 | #28 | #29 | #30 | #31 | #32 | Total |
+|--------|-----|-----|-----|-----|-----|-----|-----|-----|-------|
+| Quality | 4/5 | n/a | 8/10 | 8/10 | 9/10 | 9/10 | 9/10 | 9/10 | — |
+| 🔴 Findings | 0 | ? | 0 | 1 | 0 | 0 | 0 | 0 | 1 |
+| 🟡 Findings | 1 | ? | 0 | 0 | 0 | 0 | 1 | 0 | 2 |
+| NITs | 0 | ? | 0 | 0 | 1 | 2 | 1 | 0 | 4 |
+| Findings fixed | 1 | ? | 0 | 1 | 0 | 1 | 1 | 0 | 4 |
+| Retro present | yes | **NO** | yes | yes | yes | yes | yes | yes | 7/8 |
+
+(#24 stats unknown — no retro was written; see finding #5.)
+
+### Process Improvements Applied
+
+**CLAUDE.md**: Added the "Datadog monitor conventions" section (PR #22 retro action,
+commit 3ebb0ab) — bare-handle scoping, rates-over-counts, recovery hysteresis,
+event-v2 graph limitation. Extended with the `{{#is_recovery}}` vs
+`{{#is_alert_recovery}}` handle-less-warn rule (commit 547505a, PR #28 retro action).
+**Pipeline template**: No changes.
+**Skills**: No changes this milestone.
+
+### Open Items
+
+- [ ] Extract monitor thresholds to shared `locals` (pod-storm + Bedrock latency) — Action Tracker #6 (GitHub #33)
+- [ ] Serialize/stack live applies after merge to avoid cross-PR ordering deps — Action Tracker #7 (GitHub #34)
+- [ ] CHANGELOG fragment files to end the `### Added` collision — Action Tracker #8 (GitHub #35)
 
 <!-- Milestone retro entry template:
 ## <milestone> — <date>
