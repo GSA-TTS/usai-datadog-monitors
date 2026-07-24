@@ -4,11 +4,45 @@
 
 | Priority | Feature | Why | Milestone |
 |----------|---------|-----|-----------|
-| **P1** | Onboard tag-blocked tenants to model-backend monitors | 16 tenants have no Bedrock/Azure monitoring; blocked on the `Environment=production` secret tag | v0.1.0 |
+| ~~**P1**~~ | ~~Onboard tag-blocked tenants to model-backend monitors~~ | **Done** — 16 tenants onboarded (PR #19); nsf/eeoc added (PR #32) → 25 enabled orgs | v0.1.0 |
 | ~~**P2**~~ | ~~Re-enable aigov Keycloak monitors and dashboard~~ | **Done** — aigov Keycloak monitors + dashboard now Terraform-managed (see Completed) | v0.1.0 |
-| **P3** | Validate Bedrock anomaly monitor baseline | The new anomaly-based throughput-collapse monitor needs baseline warm-up confirmation across tenants | v0.1.0 |
+| ~~**P3**~~ | ~~Validate Bedrock anomaly monitor baseline~~ | **Done** — anomaly monitor removed (PR #7); could not work on sparse traffic, redundant with latency monitor | v0.1.0 |
+| **P2** | Extract monitor thresholds to shared `locals` (#33) | Every threshold lives in 3-5 unbound places; a retune silently half-applies (drift caught across #29/#30/#31) | v0.4.0-1 |
+| **P2** | CHANGELOG fragment files (#35) | The `### Added` three-way collision hit 4 consecutive PRs; fragment files eliminate the merge tax | v0.4.0-1 |
+| **P2** | Apply-live-only-after-merge convention (#34) | Live-first apply orphaned providers + collided file appends; document the merge-then-apply rule | v0.4.0-1 |
 
 ## Milestones
+
+### Milestone: v0.4.0-1 — Tech-debt drain: bind thresholds, kill merge friction
+
+Drain bucket from the v0.3.0 retrospective. Three tech-debt items, each < 1 day,
+all touching the release/config plumbing rather than monitor behavior.
+
+**#33 — Extract monitor thresholds to shared `locals`** (P2, tech-debt)
+Every monitor threshold is duplicated across 3-5 unbound locations (monitor query,
+`monitor_thresholds` block, dashboard reference-line markers, README table,
+CHANGELOG), so a retune silently half-applies — caught three times (#29→#30
+dashboard markers stale; #31 found dashboard + README two refits behind). Derive
+from shared `locals` in `terraform/modules/model_backend_monitors/` (e.g.
+`local.pod_storm_critical_s = 5400`, `local.bedrock_latency_crit_ms = 60000`)
+referenced by both `main.tf`/`infra_monitors.tf` and `dashboard.tf`/
+`deploy_dashboard.tf`, so a refit is a one-line change and structurally impossible
+to half-apply.
+
+**#35 — CHANGELOG fragment files** (P2, tech-debt)
+Every monitor/dashboard PR appends to the same `### Added` list head, so each
+conflicts the moment a sibling merges (#29/#30/#32 and any Added-section PR).
+Adopt fragment files (one file per change under `changelog.d/`, concatenated at
+release — the towncrier/scriv pattern) or a stable per-PR anchor. The collision is
+section-local, not file-local (#31 edited `### Changed` and hit none), so fragment
+files eliminate it regardless of section.
+
+**#34 — Apply-live-only-after-merge convention** (P2, tech-debt)
+The live-first workflow (apply to orgs before source review/merge) orphaned the
+nsf/eeoc providers on main (blocking targeted applies) and collided file appends
+across #28/#29. Document the merge-then-apply rule (or land related monitor PRs as
+one stack) in CLAUDE.md so the interim-buggy-live-state + cross-PR ordering tax
+stops recurring. Process/docs change, no monitor behavior change.
 
 ### Milestone: v0.1.0 — Complete the multi-tenant monitor rollout
 

@@ -7,7 +7,7 @@ issue or be explicitly closed with a reason.
 |---|--------|--------|--------|--------|-------|
 | 1 | Onboard 16 tag-blocked tenants once DD secrets are tagged `Environment=production` | Retro v0.1.0 | #5 | Closed | Resolved PR #19: 16 tenants onboarded (gsai KMS-blocked, disa no SSO, aigov excluded by request) |
 | 2 | Add self-review checklist item — wire Datadog `template_variable` into query scopes | Retro v0.1.0 (PR #4, recurred PR #8) | #6 | Closed | Added "Datadog dashboard conventions" to CLAUDE.md (PR #9) |
-| 3 | Add stacked-PR pre-merge safety check to pipeline workflow | Retro v0.2.0 (PR #18) | #20 | Open | Detect stacked PRs and retarget child before merging base |
+| 3 | Add stacked-PR pre-merge safety check to pipeline workflow | Retro v0.2.0 (PR #18) | #20 | Closed | Already implemented in pipeline-ship skill Step 2.5 (out-of-repo, ~/.claude/skills/). GitHub #20 closed 2026-07-24 (v0.4.0-1 drain triage). |
 | 4 | Document `event-v2 alert` monitor graph limitation in CLAUDE.md | Retro v0.2.0 (PR #19) | #21 | Closed | Resolved: added to CLAUDE.md "Datadog monitor conventions" (commit 3ebb0ab, PR #22 milestone). GitHub #21 to close. |
 | 5 | Self-review checklist item — notification handle scoped to is_alert/is_alert_recovery | Retro v0.2.0 (PR #22) | #23 | Closed | Resolved this milestone: CLAUDE.md "Datadog monitor conventions" bare-handle rule (commit 3ebb0ab) + is_recovery/is_alert_recovery handle-less-warn rule (547505a, PR #28). GitHub #23 to close. |
 | 6 | Extract monitor thresholds to shared `locals` (pod-storm + Bedrock latency) | Retro v0.3.0 (PRs #29/#30/#31) | #33 | Open | Every threshold lives in 3-5 unbound places; derive from shared locals so a refit is one line |
