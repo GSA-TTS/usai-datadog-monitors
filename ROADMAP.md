@@ -7,9 +7,9 @@
 | ~~**P1**~~ | ~~Onboard tag-blocked tenants to model-backend monitors~~ | **Done** — 16 tenants onboarded (PR #19); nsf/eeoc added (PR #32) → 25 enabled orgs | v0.1.0 |
 | ~~**P2**~~ | ~~Re-enable aigov Keycloak monitors and dashboard~~ | **Done** — aigov Keycloak monitors + dashboard now Terraform-managed (see Completed) | v0.1.0 |
 | ~~**P3**~~ | ~~Validate Bedrock anomaly monitor baseline~~ | **Done** — anomaly monitor removed (PR #7); could not work on sparse traffic, redundant with latency monitor | v0.1.0 |
-| **P2** | Extract monitor thresholds to shared `locals` (#33) | Every threshold lives in 3-5 unbound places; a retune silently half-applies (drift caught across #29/#30/#31) | v0.4.0-1 |
-| **P2** | CHANGELOG fragment files (#35) | The `### Added` three-way collision hit 4 consecutive PRs; fragment files eliminate the merge tax | v0.4.0-1 |
-| **P2** | Apply-live-only-after-merge convention (#34) | Live-first apply orphaned providers + collided file appends; document the merge-then-apply rule | v0.4.0-1 |
+| ~~**P2**~~ | ~~Extract monitor thresholds to shared `locals` (#33)~~ | **Done** — PR #36 (zero-diff plan proof); thresholds now in `locals.tf` | v0.4.0-1 |
+| ~~**P2**~~ | ~~CHANGELOG fragment files (#35)~~ | **Done** — PR #37; `changelog.d/` + `scripts/assemble-changelog.sh` | v0.4.0-1 |
+| ~~**P2**~~ | ~~Apply-live-only-after-merge convention (#34)~~ | **Done** — PR #38; "Deployment / apply workflow" section in CLAUDE.md | v0.4.0-1 |
 
 ## Milestones
 
@@ -17,6 +17,7 @@
 
 Drain bucket from the v0.3.0 retrospective. Three tech-debt items, each < 1 day,
 all touching the release/config plumbing rather than monitor behavior.
+**Status: complete** — all three merged (#33→PR #36, #35→PR #37, #34→PR #38).
 
 **#33 — Extract monitor thresholds to shared `locals`** (P2, tech-debt)
 Every monitor threshold is duplicated across 3-5 unbound locations (monitor query,
