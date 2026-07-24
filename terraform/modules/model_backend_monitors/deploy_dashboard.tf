@@ -56,12 +56,12 @@ resource "datadog_dashboard" "deployments" {
             display_type = "line"
           }
           marker {
-            value        = "y = 5400"
+            value        = "y = ${local.pod_storm_critical_s}"
             display_type = "error dashed"
             label        = "90m — restart-storm threshold (critical)"
           }
           marker {
-            value        = "y = 7200"
+            value        = "y = ${local.pod_storm_warning_s}"
             display_type = "warning dashed"
             label        = "2h — elevated churn (warning)"
           }
@@ -79,17 +79,17 @@ resource "datadog_dashboard" "deployments" {
             q = "top(avg:kubernetes_state.pod.age{$kube_namespace} by {kube_namespace,kube_deployment} / 60, 10, 'last', 'asc')"
             conditional_formats {
               comparator = "<"
-              value      = 90
+              value      = local.pod_storm_critical_min
               palette    = "white_on_red"
             }
             conditional_formats {
               comparator = "<"
-              value      = 120
+              value      = local.pod_storm_warning_min
               palette    = "white_on_yellow"
             }
             conditional_formats {
               comparator = ">="
-              value      = 120
+              value      = local.pod_storm_warning_min
               palette    = "white_on_green"
             }
           }
