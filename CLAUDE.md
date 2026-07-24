@@ -11,6 +11,21 @@
 - changelog: keep-a-changelog
 <!-- /pipeline-config -->
 
+## CHANGELOG workflow
+
+- **Don't edit the `### Added` list head in `CHANGELOG.md` directly — drop a
+  fragment file in `changelog.d/`.** Every monitor/dashboard PR used to append
+  to the same section head, so each PR three-way-conflicted with its siblings
+  the instant one merged (four consecutive PRs — #29/#30/#31/#32 — paid that tax;
+  GitHub #35). The collision is *section-local*: two PRs editing `### Added`
+  collide, a PR editing `### Changed` does not. Per-PR fragment files never share
+  a path, so they never conflict regardless of section. Name them
+  `changelog.d/<pr-or-issue>-<slug>.<type>.md` where `<type>` is a lower-cased
+  Keep a Changelog section (`added`/`changed`/`removed`/`fixed`/…); the body is
+  the bullet text with no leading `- `. At release, `scripts/assemble-changelog.sh`
+  folds them into `[Unreleased]` and deletes them (`--check` for a dry run). See
+  `changelog.d/README.md`.
+
 ## Datadog dashboard conventions
 
 Lessons baked in from PRs #4 and #8 (self-review checklist for any dashboard work):
