@@ -30,7 +30,7 @@ resource "datadog_monitor" "bedrock_invocation_latency_high" {
   # window smooths that: it takes a sustained cluster of slow calls (a true
   # "stuck" state) to hold the 15m average above 60s. Still well under the 88s+
   # user-visible collapse. Recovery hysteresis (50s/30s) prevents re-flap.
-  query = "avg(last_15m):avg:aws.bedrock.invocation_latency{*} by {modelid} > 60000"
+  query = "avg(last_15m):avg:aws.bedrock.invocation_latency{*} by {modelid} > ${local.bedrock_latency_crit_ms}"
 
   message = <<-EOT
     {{#is_alert}}
@@ -51,10 +51,10 @@ resource "datadog_monitor" "bedrock_invocation_latency_high" {
   EOT
 
   monitor_thresholds {
-    critical          = 60000
-    warning           = 40000
-    critical_recovery = 50000
-    warning_recovery  = 30000
+    critical          = local.bedrock_latency_crit_ms
+    warning           = local.bedrock_latency_warn_ms
+    critical_recovery = local.bedrock_latency_crit_recovery_ms
+    warning_recovery  = local.bedrock_latency_warn_recovery_ms
   }
 
   notify_no_data    = false

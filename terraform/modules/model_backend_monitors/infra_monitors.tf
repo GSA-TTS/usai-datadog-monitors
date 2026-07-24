@@ -281,7 +281,7 @@ resource "datadog_monitor" "pod_restart_storm" {
   name = "[${var.tenant}] Pod restart storm (deployment cycling pods, image unchanged)"
   type = "query alert"
 
-  query = "max(last_4h):avg:kubernetes_state.pod.age{*} by {kube_cluster_name,kube_namespace,kube_deployment} < 5400"
+  query = "max(last_4h):avg:kubernetes_state.pod.age{*} by {kube_cluster_name,kube_namespace,kube_deployment} < ${local.pod_storm_critical_s}"
 
   message = <<-EOT
     {{#is_alert}}
@@ -313,10 +313,10 @@ resource "datadog_monitor" "pod_restart_storm" {
   # Recovery thresholds sit ABOVE the trigger (the non-alerting side) with wide
   # hysteresis so a deployment that recovers to hours-old pods doesn't flap back.
   monitor_thresholds {
-    critical          = 5400
-    critical_recovery = 10800
-    warning           = 7200
-    warning_recovery  = 14400
+    critical          = local.pod_storm_critical_s
+    critical_recovery = local.pod_storm_critical_recovery_s
+    warning           = local.pod_storm_warning_s
+    warning_recovery  = local.pod_storm_warning_recovery_s
   }
 
   # A genuine storm persists; re-page at most every 2h. Groups evaluate

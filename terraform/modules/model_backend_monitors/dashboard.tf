@@ -37,12 +37,12 @@ resource "datadog_dashboard" "model_backend" {
       # Reference lines for the monitor thresholds (40s warn / 60s crit,
       # bedrock_invocation_latency_high — refit to 60s/15m for the opus-4-8 mix).
       marker {
-        value        = "y = 40000"
+        value        = "y = ${local.bedrock_latency_warn_ms}"
         display_type = "warning dashed"
         label        = "warn 40s"
       }
       marker {
-        value        = "y = 60000"
+        value        = "y = ${local.bedrock_latency_crit_ms}"
         display_type = "error dashed"
         label        = "crit 60s"
       }
