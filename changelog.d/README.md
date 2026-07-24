@@ -45,8 +45,11 @@ scripts/assemble-changelog.sh --check  # CI/dry-run: list pending fragments, tou
 
 Fragments are grouped by Keep a Changelog type. Bullets for a type that already
 has a `### <Type>` subsection under `[Unreleased]` are merged into it (inserted
-at the top); types with no existing subsection are created and appended in
-canonical order (Added, Changed, Deprecated, Removed, Fixed, Security). The
-assembler only *adds* fragment content — it never rewrites or reorders existing
-entries, so anything that still needs the old inline style can edit
-`CHANGELOG.md` directly.
+at the top). Types with **no** existing subsection are appended *after* the
+section's existing content, ordered canonically (Added, Changed, Deprecated,
+Removed, Fixed, Security) **among themselves** — the assembler never moves a
+subsection that's already there, so a pre-existing `### Fixed` can end up before
+a newly-created `### Added`. Re-sort by hand at release if strict Keep a
+Changelog ordering matters. The assembler only *adds* fragment content — it
+never rewrites existing entries, so anything that still needs the old inline
+style can edit `CHANGELOG.md` directly.

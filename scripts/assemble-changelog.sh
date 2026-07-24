@@ -40,18 +40,14 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
   exit 0
 fi
 
-# Title-case a type name for the "### Added" header.
-title_case() {
-  case "$1" in
-    added)      echo "Added" ;;
-    changed)    echo "Changed" ;;
-    deprecated) echo "Deprecated" ;;
-    removed)    echo "Removed" ;;
-    fixed)      echo "Fixed" ;;
-    security)   echo "Security" ;;
-    *)          echo "$1" ;;
-  esac
-}
+# The assembler only ever writes into the `## [Unreleased]` section. If it's
+# missing, awk would drop every bullet on the floor — and we'd still delete the
+# fragments. Refuse loudly, leaving the fragments in place. (Review PR #37.)
+if ! grep -q '^## \[Unreleased\]' "$CHANGELOG"; then
+  echo "ERROR: no '## [Unreleased]' section in $CHANGELOG — refusing to assemble." >&2
+  echo "       Add a '## [Unreleased]' header first; fragments left untouched." >&2
+  exit 1
+fi
 
 # Build the new-bullets block per type into a temp file keyed by type.
 NEW_BLOCK=$(mktemp)
@@ -67,6 +63,11 @@ for t in $TYPES; do
         # Emit each non-empty logical bullet: prefix a "- " to the first line,
         # continuation lines keep their indentation. Blank lines separate bullets.
         body=$(awk 'NF{print} !NF{print ""}' "$f")
+        # Skip an empty/whitespace-only fragment rather than emit a bare "- ".
+        if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+          echo "WARNING: skipping empty fragment $(printf '%s' "$f" | sed "s#^$REPO_ROOT/##")" >&2
+          continue
+        fi
         block="${block}- ${body}"$'\n'
         used_fragments="${used_fragments} $f"
         ;;
@@ -78,7 +79,7 @@ for t in $TYPES; do
 done
 
 if [ ! -s "$NEW_BLOCK" ]; then
-  echo "Fragments found but none matched a known type (.added/.changed/.deprecated/.removed/.fixed/.security). Nothing assembled."
+  echo "Fragments found but none matched a known non-empty type (.added/.changed/.deprecated/.removed/.fixed/.security). Nothing assembled."
   exit 1
 fi
 
@@ -101,10 +102,10 @@ awk -v types="$TYPES" '
     next
   }
   # Second file: CHANGELOG.md.
-  FNR == 1 { inUnrel = 0 }
+  FNR == 1 { inUnrel = 0; prevBlank = 1 }
   {
     if ($0 ~ /^## \[Unreleased\]/) {
-      print
+      print; prevBlank = 0
       inUnrel = 1
       delete emitted
       next
@@ -114,12 +115,12 @@ awk -v types="$TYPES" '
     if (inUnrel && $0 ~ /^## /) {
       flush()
       inUnrel = 0
-      print
+      print; prevBlank = 0
       next
     }
     if (inUnrel && $0 ~ /^### /) {
       hdr = tolower($0); sub(/^### +/, "", hdr)
-      print
+      print; prevBlank = 0
       if (hdr in new && !(hdr in emitted)) {
         printf "%s", new[hdr]
         emitted[hdr] = 1
@@ -127,14 +128,17 @@ awk -v types="$TYPES" '
       next
     }
     print
+    prevBlank = ($0 ~ /^[[:space:]]*$/)
   }
   END { if (inUnrel) flush() }
   function flush(   i, t) {
     for (i = 1; i <= n; i++) {
       t = torder[i]
       if ((t in new) && !(t in emitted)) {
-        printf "### %s%s\n", toupper(substr(t,1,1)) substr(t,2), ""
+        if (!prevBlank) print ""          # separate from preceding content
+        printf "### %s\n", toupper(substr(t,1,1)) substr(t,2)
         printf "%s\n", new[t]
+        prevBlank = 1                      # new[t] already ends "\n" + this "\n"
         emitted[t] = 1
       }
     }
