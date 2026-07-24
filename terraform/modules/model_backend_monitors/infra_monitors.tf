@@ -389,10 +389,14 @@ resource "datadog_monitor" "cronjob_failing" {
     warning_recovery = 0
   }
 
-  # A broken CronJob keeps failing every schedule; re-page at most every 2h rather
-  # than on each failed run. Groups evaluate independently so one bad job doesn't
-  # mask another.
-  renotify_interval = 120
+  # A broken CronJob keeps failing every schedule and can stay broken for days
+  # (e.g. console-data's DeadlineExceeded, GSA-TTS/usai#1094, fleet-wide). Re-page
+  # at most ONCE PER DAY: the initial trigger still fires immediately, but the
+  # "still failing" reminder is daily rather than every 2h, so a known-broken job
+  # doesn't flood the channel with re-triggers while it's being worked. Groups
+  # evaluate independently so one bad job doesn't mask another, and the recovery
+  # notification still fires promptly when it clears.
+  renotify_interval = 1440
 
   # on_missing_data "default" = do nothing when no failed-job series reports, which
   # is the healthy state (no failures = no series). Avoids a false page when a

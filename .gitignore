@@ -1,2 +1,5 @@
 .pipeline-state/
 .pipeline-log.md
+
+# Claude Code local worktrees / session state
+.claude/
