@@ -416,7 +416,15 @@ module "doli" {
 # be retired separately.)
 resource "datadog_downtime_schedule" "doli_mute" {
   provider = datadog.doli
-  scope    = "tenant:doli"
+
+  # scope MUST be "*", not "tenant:doli". `scope` filters which evaluated metric
+  # GROUPS are muted, not which monitors — and the doli monitors group by kube_*
+  # tags (kube_cluster_name/kube_namespace/kube_deployment), which carry no
+  # tenant:doli tag. A scope of "tenant:doli" matched zero groups, so the
+  # downtime silenced nothing and deployment_unavailable kept paging (2026-07-24).
+  # monitor_identifier.monitor_tags below is what restricts the mute to doli's
+  # monitors; scope "*" then mutes all of their groups.
+  scope = "*"
 
   monitor_identifier {
     monitor_tags = ["tenant:doli"]
