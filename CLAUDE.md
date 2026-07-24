@@ -11,6 +11,31 @@
 - changelog: keep-a-changelog
 <!-- /pipeline-config -->
 
+## Deployment / apply workflow
+
+- **Apply to live orgs only *after* the PR merges to `main` — never live-first.**
+  The live-first habit (apply to the 25 orgs, *then* open the PR) cost us twice
+  across the v0.3.0 monitor PRs (#28/#29/#30/#31/#32; GitHub #34):
+  - **Provider-orphan deferred-apply chain.** Monitors applied live while
+    referencing `datadog.nsf`/`datadog.eeoc` providers that didn't exist on
+    `main` until #32 merged — so any targeted apply from `main` errored on the
+    orphaned providers, and #28–#31's live re-applies all had to batch behind
+    #32. Applying only post-merge keeps `main` and the live state in lock-step:
+    the providers a plan references always exist.
+  - **Cross-PR file-append conflicts.** #28 and #29 both appended to
+    `infra_monitors.tf` (and `CHANGELOG.md`) and collided the instant #28
+    merged. (The CHANGELOG half of this is now handled by the fragment-file
+    workflow below; the `.tf` half is avoided by not stacking live edits ahead
+    of merge.)
+  - The batched apply is fine as the *final* step: merge the PR(s), then run one
+    `terraform apply` from `main` so live state matches reviewed source. For a
+    pure refactor, a **zero-diff plan** from `main` is the proof the merge
+    changed nothing live (see #33/PR #36).
+  - When several monitor/dashboard PRs are genuinely interdependent (shared
+    provider wiring, shared file), land them as one stack or merge the
+    base-provider PR first — don't apply an interim state that only exists on a
+    branch.
+
 ## CHANGELOG workflow
 
 - **Don't edit the `### Added` list head in `CHANGELOG.md` directly — drop a
