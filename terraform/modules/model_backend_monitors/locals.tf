@@ -32,4 +32,12 @@ locals {
   # so they track a retune automatically. Currently 90m / 120m.
   pod_storm_critical_min = local.pod_storm_critical_s / 60
   pod_storm_warning_min  = local.pod_storm_warning_s / 60
+
+  # Edge TLS cert-expiry thresholds (cert_monitors.tf: ssl_cert,
+  # ssl_cert_expiring_soon, acm_cert_expiry). DAYS remaining, counting down — so
+  # the warn value is LARGER than the crit value. Referenced from three resources
+  # plus their message bodies; keep them here rather than in the feature file so a
+  # retune can't half-apply (GitHub #33).
+  cert_expiry_warn_days = 45 # warn early — cert generation takes ~15m + a PR
+  cert_expiry_crit_days = 14 # crit — genuinely close, page it
 }

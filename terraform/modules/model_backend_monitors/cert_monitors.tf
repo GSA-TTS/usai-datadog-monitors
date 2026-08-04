@@ -5,15 +5,24 @@
 # / console.<tenant>.usai.gov, so client TLS failed with a wrong/missing-cert
 # error and nobody was alerted. These catch that class of failure proactively:
 #
-#   1. ssl_cert_<host>  — SSL synthetic: cert present, chain valid, hostname/SAN
-#                         match, AND more than cert_expiry_crit_days (14) to
-#                         expiry. Fires on missing / wrong / untrusted /
-#                         expiring cert (the exact EEOC failure).
-#   2. https_reach_<host> — HTTP synthetic: GET returns 200/302 over valid TLS.
-#                         Catches the cert error indirectly PLUS the network/
-#                         allowlist drop the EEOC client also hit.
-#   3. cert_expiry_<host> — metric-style alert on the SSL test's days-remaining,
-#                         so an expiring (not-yet-broken) cert warns early.
+#   1. ssl_cert_<host>  — SSL synthetic: cert present, chain trusted, not
+#                         self-signed, AND more than cert_expiry_crit_days (14)
+#                         to expiry. Datadog's documented SSL failure codes cover
+#                         expired / untrusted / self-signed / revoked; SAN-
+#                         hostname verification is NOT documented, so the
+#                         wrong-hostname case is covered by check 2 rather than
+#                         claimed here.
+#   2. https_reach_<host> — HTTP synthetic: GET follows redirects and asserts a
+#                         final 200 over valid TLS. Catches the cert error
+#                         indirectly PLUS the network/allowlist drop the EEOC
+#                         client also hit. This is also what actually covers the
+#                         hostname/SAN-MISMATCH case: an HTTP client rejects a
+#                         name-mismatched cert, whereas Datadog's SSL-test docs
+#                         confirm expiry/trust/self-signed failures but do not
+#                         document SAN verification.
+#   3. ssl_cert_expiring_soon_<host> — the same SSL assertion at 45 days, so an
+#                         expiring (not-yet-broken) cert warns early. Handle-less
+#                         (a ticket, not a page).
 #
 # ── LOAD-BEARING CAVEAT: WAF ALLOWLIST vs SYNTHETIC SOURCE IPs ──────────────
 # These endpoints sit behind a WAF whose default action is BLOCK with an
@@ -34,8 +43,9 @@
 
 locals {
   # Public edge hostnames per tenant. Default derives from the slug
-  # (chat.<tenant>.usai.gov / console.<tenant>.usai.gov); override via
-  # var.edge_hosts for tenants whose naming differs (e.g. doli).
+  # (chat.<tenant>.usai.gov / console.<tenant>.usai.gov) — both patterns verified
+  # to resolve in DNS for gsa and doc (2026-08-04). Override via var.edge_hosts
+  # for any tenant whose naming differs.
   edge_hosts = length(var.edge_hosts) > 0 ? var.edge_hosts : [
     "chat.${var.tenant}.usai.gov",
     "console.${var.tenant}.usai.gov",
@@ -47,8 +57,8 @@ locals {
 
   edge_hosts_effective = local.edge_synthetics_enabled ? local.edge_hosts : []
 
-  cert_expiry_warn_days = 45 # warn early — cert generation takes ~15m + a PR
-  cert_expiry_crit_days = 14 # crit — genuinely close, page it
+  # cert_expiry_warn_days / cert_expiry_crit_days live in locals.tf (the repo's
+  # single source of truth for monitor thresholds — GitHub #33).
 }
 
 # --- 1. SSL cert validity + expiry (the direct EEOC fix) --------------------
@@ -78,10 +88,13 @@ resource "datadog_synthetics_test" "ssl_cert" {
     port = "443"
   }
 
-  # Cert must be valid (chain + hostname/SAN match) AND have more than
-  # cert_expiry_crit_days left. For subtype=ssl, the `certificate` assertion's
-  # target is the days-remaining threshold; isInMoreThan asserts days_left >
-  # target. An invalid/missing/mismatched cert fails the check outright.
+  # Cert must be trusted AND have more than cert_expiry_crit_days left. For
+  # subtype=ssl the `certificate` assertion's target is a number of DAYS, and
+  # isInMoreThan asserts days-remaining > target. A missing / expired / untrusted
+  # / self-signed cert fails the run at connection time (CERT_HAS_EXPIRED,
+  # CERT_UNTRUSTED, INVALID_CA, DEPTH_ZERO_SELF_SIGNED_CERT) before assertions
+  # are evaluated, so those cases are caught regardless. Hostname/SAN mismatch is
+  # covered by the HTTP check (see file header).
   assertion {
     type     = "certificate"
     operator = "isInMoreThan"
@@ -96,6 +109,12 @@ resource "datadog_synthetics_test" "ssl_cert" {
     retry {
       count    = 2
       interval = 30000
+    }
+    # A broken/expiring cert stays broken until someone rotates it, so re-page
+    # daily rather than once — a single missed page means the cert lapses. Same
+    # reasoning as cronjob_failing's 1440 in PR #39.
+    monitor_options {
+      renotify_interval = 1440
     }
   }
 
@@ -148,55 +167,79 @@ resource "datadog_synthetics_test" "https_reach" {
       count    = 2
       interval = 30000
     }
+    # Re-page daily while the edge stays unreachable (see the ssl_cert note).
+    monitor_options {
+      renotify_interval = 1440
+    }
   }
 
   tags = concat(local.base_tags, ["service:edge-tls", "check:https-reach"])
 }
 
-# --- 3. Cert-expiry early-warning (metric monitor on the SSL test) ----------
-# The SSL synthetic above CRITs at <14 days. This monitor warns earlier (45d)
-# off the same synthetic's days-remaining metric, so a slowly-expiring cert is
-# caught with time to rotate rather than only when it breaks.
-resource "datadog_monitor" "cert_expiry" {
+# --- 3. Cert-expiry early-warning (second SSL synthetic at 45 days) ---------
+# Check 1 fails only once the cert is inside cert_expiry_crit_days (14). This
+# test uses the SAME assertion form with the 45-day target, so a slowly-expiring
+# cert surfaces with time to rotate (ACM generation + a PR is not instant).
+#
+# WHY A SECOND SYNTHETIC RATHER THAN A METRIC MONITOR: the first version of this
+# was a `datadog_monitor` querying `synthetics.ssl.days_left{check_id:...}`.
+# That metric DOES NOT EXIST. Verified against the live gov API (2026-08-04):
+#   GET /api/v1/metrics/synthetics.ssl.days_left      -> {"errors":["... not found"]}
+#   GET /api/v1/metrics/synthetics.ssl.time_to_expiry -> exists, unit: MINUTE
+# So the query returned no series and — with notify_no_data = false — the monitor
+# would have sat in No Data forever, displaying green while monitoring nothing.
+# That is strictly worse than the EEOC gap it was meant to close: previously no
+# monitor, now a monitor that LOOKS like it works. (The live test-apply to eeoc
+# did not catch this: Datadog accepts a monitor on any metric name and simply
+# parks it in No Data, so the apply proved only that the query grammar parsed.)
+#
+# Even with the correct name the thresholds would have been wrong: time_to_expiry
+# is in MINUTES, so `< 14` means "expires in 14 minutes", not 14 days.
+#
+# Reusing the `certificate` / `isInMoreThan` assertion avoids the metric name,
+# the unit conversion, AND the unverified `check_id` tag key in one move — it is
+# the one form the provider docs explicitly demonstrate for SSL tests.
+#
+# Handle-less by design: a cert 45 days out is a ticket, not a page. Only the
+# 14-day test (check 1) carries the notification handle.
+resource "datadog_synthetics_test" "ssl_cert_expiring_soon" {
   for_each = toset(local.edge_hosts_effective)
 
-  name = "[${var.tenant}] Edge TLS cert expiring soon — ${each.value}"
-  type = "metric alert"
-
-  # Datadog requires the query threshold to equal the CRITICAL threshold; the
-  # warning (larger, since fewer-days-left counts down) trips first via
-  # monitor_thresholds.warning. So the query uses cert_expiry_crit_days.
-  query = "min(last_5m):min:synthetics.ssl.days_left{check_id:${datadog_synthetics_test.ssl_cert[each.value].id}} < ${local.cert_expiry_crit_days}"
-
-  message = <<-EOT
-    {{#is_warning}}
-    TLS certificate for ${each.value} (${var.tenant}) expires in fewer than ${local.cert_expiry_warn_days} days. Rotate/renew via ACM before it breaks client access. (Cert generation + PR takes time — do not wait for the hard failure.)
-    {{/is_warning}}
+  name      = "[${var.tenant}] Edge TLS cert expiring soon (<${local.cert_expiry_warn_days}d) — ${each.value}"
+  type      = "api"
+  subtype   = "ssl"
+  status    = "live"
+  locations = var.synthetic_locations
+  message   = <<-EOT
     {{#is_alert}}
-    TLS certificate for ${each.value} (${var.tenant}) expires in fewer than ${local.cert_expiry_crit_days} days — imminent. Renew now.
-    ${var.notification_channel}
+    TLS certificate for ${each.value} (${var.tenant}) expires in fewer than ${local.cert_expiry_warn_days} days. Rotate/renew via ACM before it breaks client access — cert generation plus a PR takes time, so do not wait for the hard failure. No page is sent for this tier; the ${local.cert_expiry_crit_days}-day test pages.
     {{/is_alert}}
     {{#is_alert_recovery}}
-    Recovered: cert for ${each.value} renewed / days-remaining back above threshold.
-    ${var.notification_channel}
+    Recovered: cert for ${each.value} renewed — more than ${local.cert_expiry_warn_days} days remaining.
     {{/is_alert_recovery}}
 
     Tenant: ${var.tenant} @ Edge host: ${each.value}
   EOT
 
-  # The 45d warn tier is deliberately handle-less (no notification_channel in the
-  # {{#is_warning}} block): a cert 45 days out is a ticket, not a page. Per repo
-  # convention the recovery block must then be {{#is_alert_recovery}}, NOT bare
-  # {{#is_recovery}} — the latter also fires on WARN->OK and would ping the
-  # channel for a warn tier that never paged (the PR #22/#28 noise class).
-  monitor_thresholds {
-    warning  = local.cert_expiry_warn_days
-    critical = local.cert_expiry_crit_days
+  request_definition {
+    host = each.value
+    port = "443"
   }
 
-  notify_no_data    = false
-  renotify_interval = 0
-  tags              = concat(local.base_tags, ["service:edge-tls", "check:cert-expiry"])
+  assertion {
+    type     = "certificate"
+    operator = "isInMoreThan"
+    target   = local.cert_expiry_warn_days
+  }
+
+  options_list {
+    tick_every           = 3600 # hourly is ample for a 45-day countdown
+    accept_self_signed   = false
+    min_failure_duration = 300
+    min_location_failed  = 1
+  }
+
+  tags = concat(local.base_tags, ["service:edge-tls", "check:cert-expiry"])
 }
 
 # ---------------------------------------------------------------------------
@@ -217,7 +260,7 @@ resource "datadog_monitor" "cert_expiry" {
 # reach `OK` (evaluating with data), not stay `No Data`. If it stays No Data,
 # do NOT roll out — notify_no_data=true would false-page every tenant. The
 # metric IS present (query API proves it), so this is a monitor-config problem
-# to solve, not a missing-metric one. See RETRO / the EEOC-cert thread.
+# to solve, not a missing-metric one.
 #
 # Gated behind its OWN flag (var.enable_acm_cert_monitor, default false) —
 # separate from the synthetics' enable_edge_synthetics so neither can turn the
@@ -271,6 +314,10 @@ resource "datadog_monitor" "acm_cert_expiry" {
     No ACM cert-expiry metric from the ${var.tenant} account for 24h. The Datadog AWS integration may not be wired for this (sub-)account — cert expiry is currently UNMONITORED here. Confirm the CloudWatch metric stream / integration is enabled.
     ${var.notification_channel}
     {{/is_no_data}}
+    {{#is_no_data_recovery}}
+    Recovered: ACM cert-expiry metric is reporting again for ${var.tenant}.
+    ${var.notification_channel}
+    {{/is_no_data_recovery}}
     {{#is_alert_recovery}}
     Recovered: soonest ACM cert expiry back above threshold for ${var.tenant}.
     ${var.notification_channel}
@@ -287,9 +334,20 @@ resource "datadog_monitor" "acm_cert_expiry" {
     critical = local.cert_expiry_crit_days
   }
 
-  notify_no_data    = true
+  # notify_no_data is FALSE on purpose while this monitor is unverified: it has
+  # never successfully evaluated (see header), so a premature rollout would have
+  # every tenant page on No Data. Flipping this to true is an EXPLICIT step in
+  # the verification checklist above — do it only after confirming the monitor
+  # reaches OK on one tenant. No-data IS a meaningful signal here (a tenant with
+  # no AWS integration has unmonitored certs), so true is the eventual target,
+  # just not before the No-Data root cause is understood.
+  notify_no_data    = false
   no_data_timeframe = 1440 # 24h — ACM metric is ~hourly+sparse; only a genuine
   # integration outage (not a scrape gap) should trip no-data. 2h would false-page.
-  renotify_interval = 0
-  tags              = concat(local.base_tags, ["service:edge-tls", "check:acm-cert-expiry"])
+  renotify_interval = 1440 # daily reminder: an expiring cert stays expiring until
+  # someone rotates it, so a single page that gets missed means the cert lapses.
+  # service:acm, not service:edge-tls — this reads the AWS/CloudWatch integration
+  # metric rather than probing the edge, so it shouldn't be swept up by an
+  # edge-TLS scoped mute or dashboard filter.
+  tags = concat(local.base_tags, ["service:acm", "check:acm-cert-expiry"])
 }
