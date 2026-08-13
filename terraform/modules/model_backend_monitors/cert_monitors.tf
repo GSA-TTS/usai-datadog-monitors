@@ -366,9 +366,8 @@ resource "datadog_monitor" "acm_cert_expiry" {
 #
 # A wildcard cert matches ONE label, so `api.beta.prod.<tenant>` is not covered by
 # `*.prod.<tenant>`. Tenants onboarded to chat-beta before 2026-08 have a deeper
-# `*.beta.prod.<tenant>` cert; the 10 onboarded on 2026-08-13 (stateoig, pc, hud,
-# ncua, nlrb, nrc, ntsb, oge, sss, dnfsb) do not. Users saw 502 on
-# /backend/chat/v1/* (envoy relaying the app's own failure via_upstream).
+# `*.beta.prod.<tenant>` cert; the 10 onboarded on 2026-08-13 do not. Users saw
+# 502 on /backend/chat/v1/* (envoy relaying the app's own failure via_upstream).
 #
 # WHY THE SYNTHETICS ABOVE DON'T COVER IT:
 #   - They probe the EDGE from outside. This break is a POD-INTERNAL egress call,
@@ -385,69 +384,124 @@ resource "datadog_monitor" "acm_cert_expiry" {
 # unreachable (tracked separately in the frontend repo); this monitor is the
 # safety net that pages regardless of what the probe reports.
 #
-# ABSOLUTE COUNT IS CORRECT HERE (vs. the repo's prefer-rates rule): this is a
-# fixed-cadence health-check log (~every 5s per pod), not user traffic, so the
-# count doesn't scale with tenant size and there is no meaningful denominator.
-# Verified rates on stateoig: baseline 0 over the 2.5 days before the incident
-# (2026-08-10 -> 2026-08-12T15:00Z), ~102 per 5m while broken. Critical 20/10m is
-# ~10% of the observed failure rate yet far above a zero baseline, so a couple of
-# transient blips (a restart, a brief upstream flap) won't page.
+# ── WHY A RATIO, NOT A COUNT (this monitor was reverted once for it) ─────────
+# The first version of this used an absolute count (>20 in 10m) on the reasoning
+# that a fixed-cadence health-check log doesn't scale with tenant size. That was
+# WRONG and it flooded ~200 alerts across the 25 orgs on first apply, so the
+# monitors were destroyed and redesigned. Two things were missed:
+#
+#   1. The log is emitted ~24x/MINUTE per pod (240 per 10m — measured, dead
+#      steady across a 1h53m incident). A >20-in-10m threshold is therefore
+#      breached by a SINGLE pod in under a minute. It was never a 10% margin.
+#   2. The count DOES scale — with pod count, not tenant size. A failing rollout
+#      that CrashLoopBackOffs, or an HPA scaling up, multiplies emitters. Exactly
+#      the transient conditions that must NOT page are the ones that inflate an
+#      absolute count fastest.
+#
+# So this is a RATIO of failing health checks to total health checks. Measured on
+# the stateoig incident vs. the same pod healthy 20 minutes later:
+#
+#            healthz requests   failures   ratio
+#   broken         240            240      100.0%
+#   healthy        232              0        0.0%
+#
+# The ratio is pod-count-INVARIANT: 1 pod or 20, a broken upstream is ~100% and a
+# healthy one is 0%. A restart storm or scale event changes the denominator and
+# the numerator together, so it does not move the ratio. That is the property an
+# absolute count lacks, and it is why the repo's prefer-rates-over-counts rule
+# exists — this monitor originally violated it and paid for it.
+#
+# A 30m window with require_full_window means a short crashloop or a rollout blip
+# (both of which recover well inside 30m, and both of which fail 100% only while
+# actually down) cannot sustain the ratio long enough to page. Critical 90% (not
+# 100%) tolerates a few interleaved successes during pod churn.
 resource "datadog_monitor" "frontend_upstream_api_unreachable" {
   name = "[${var.tenant}] Frontend - upstream API unreachable (TLS/connect failure)"
   type = "log alert"
 
-  query = "logs(\"env:production service:usai-frontend \\\"API connection failed\\\"\").index(\"*\").rollup(\"count\").last(\"10m\") > 20"
+  # Ratio of failed dependency checks to total health checks. Log-alert ratios
+  # require formula() + an options.variables list; the inline
+  # `logs(...) / logs(...)` form does NOT parse (verified against the live gov
+  # API: 400 "unable to parse log monitor query").
+  query = "formula(\"(failed / total) * 100\").last(\"30m\") > 90"
+
+  variables {
+    event_query {
+      name        = "failed"
+      data_source = "logs"
+      indexes     = ["*"]
+      compute {
+        aggregation = "count"
+      }
+      search {
+        query = "env:production service:usai-frontend \"API connection failed\""
+      }
+    }
+    event_query {
+      name        = "total"
+      data_source = "logs"
+      indexes     = ["*"]
+      compute {
+        aggregation = "count"
+      }
+      search {
+        query = "env:production service:usai-frontend \"Incoming request: GET /healthz\""
+      }
+    }
+  }
 
   message = <<-EOT
     {{#is_alert}}
-    The chat-beta frontend cannot reach its upstream API ({{value}} failures in 10 minutes). Users get **502** on /backend/chat/v1/* even though the edge and /healthz look healthy — the failing call is the frontend's own server-side fetch.
+    The chat-beta frontend cannot reach its upstream API — {{value}}% of its health checks have failed the dependency call for 30 minutes. Users get **502** on /backend/chat/v1/* even though the edge and /healthz look healthy, because the failing call is the frontend's own server-side fetch.
 
-    Most likely a TLS certificate that does not cover the API hostname: `USAI_API_URL` is `api.beta.<env>.<tenant>.mcaas.fcs.gsa.gov`, and a `*.prod.<tenant>` wildcard does NOT match it (a wildcard covers one label). This was the 2026-08-13 stateoig outage.
+    Sustained for 30m at ~100%, so this is not a rollout blip or a scaling event (those move numerator and denominator together and recover well inside the window). Most likely a TLS certificate that does not cover the API hostname: `USAI_API_URL` is `api.beta.<env>.<tenant>.mcaas.fcs.gsa.gov`, and a `*.prod.<tenant>` wildcard does NOT match it (a wildcard covers one label). This was the 2026-08-13 stateoig outage.
 
-    Triage: open the log event and read `@err.stack` — `ERR_TLS_CERT_ALTNAME_INVALID` names both the requested host and the cert's actual altnames. Confirm with:
+    Triage: open a log event and read `@err.stack` — `ERR_TLS_CERT_ALTNAME_INVALID` names both the requested host and the cert's actual altnames. Confirm with:
     `openssl s_client -connect <api-host>:443 -servername <api-host> | openssl x509 -noout -ext subjectAltName`
     Fix by issuing a cert covering the API hostname (or pointing `USAI_API_URL` at a cert-valid name). Note: searching the bare string ERR_TLS_CERT_ALTNAME_INVALID returns nothing — it lives in the nested `err.stack` attribute; search `"API connection failed"` instead.
     ${var.notification_channel}
     {{/is_alert}}
-    {{#is_warning}}
-    Elevated frontend->API connection failures ({{value}} in 10m). Could be a pod restart or a brief upstream flap; if it persists it is the cert/reachability failure above.
-    {{/is_warning}}
     {{#is_alert_recovery}}
     Recovered: the frontend can reach its upstream API again for ${var.tenant}.
     ${var.notification_channel}
     {{/is_alert_recovery}}
 
-    Tenant: ${var.tenant} @ Query: service:usai-frontend "API connection failed"
+    Tenant: ${var.tenant} @ Ratio: "API connection failed" / "GET /healthz" over 30m
   EOT
 
-  # Warn tier is deliberately handle-less (a few failures are a ticket, not a
-  # page), so the recovery block MUST be {{#is_alert_recovery}} — bare
-  # {{#is_recovery}} would also fire on WARN->OK and ping the channel.
+  # No warn tier: the ratio is bimodal (0% healthy / ~100% broken — measured), so
+  # an intermediate "warning" band has no meaningful occupancy and would only add
+  # noise. With no warn tier, {{#is_alert_recovery}} is still used deliberately
+  # (never bare {{#is_recovery}}) to keep the handle on the critical path only.
   monitor_thresholds {
-    critical = 20
-    warning  = 5
-    # Hysteresis: the health check runs on a fixed 5s cadence, so once broken the
-    # count sits far above the line and only drops to ~0 when genuinely fixed.
-    # Recovering at 0 prevents Alert<->OK flapping while pods roll.
-    critical_recovery = 0
+    critical = 90
+    # Recover at 10%: well below the 90% trigger and far above the 0% healthy
+    # baseline, so pod churn during the fix cannot flap Alert<->OK.
+    critical_recovery = 10
   }
 
   include_tags = false
   notify_audit = false
 
+  # Require the full 30m window before evaluating. This is the primary guard
+  # against paging on a failing rollout / crashloop / scale event: a pod that
+  # comes up broken and is replaced does not produce 30 continuous minutes of
+  # ~100% failure.
+  require_full_window = true
+
   # No-data must NOT alert: a tenant not yet running chat-beta emits no
-  # usai-frontend logs at all, so a no-data page would fire for every such tenant.
-  # Absence of the failure log is indistinguishable from absence of the service,
-  # and the service's own availability is covered elsewhere. `on_missing_data`
-  # ("default" = evaluate as not-breaching, never notify on no-data) is the
-  # provider-supported way to express this and matches the other log alerts in
-  # this repo — it CONFLICTS with `notify_no_data`, so only this one is set.
+  # usai-frontend logs at all (and the ratio's denominator would be 0), so a
+  # no-data page would fire for every such tenant. `on_missing_data` ("default" =
+  # evaluate as not-breaching, never notify on no-data) is the provider-supported
+  # way to express this and matches the other log alerts in this repo — it
+  # CONFLICTS with `notify_no_data`, so only this one is set.
   on_missing_data = "default"
 
-  # A cert that doesn't cover the hostname stays broken until someone issues a new
-  # one, so re-page daily rather than once — same reasoning as the cert monitors
-  # above (a single missed page cost ~25h on stateoig).
-  renotify_interval = 1440
+  # NO renotify_interval. The first version set 1440 ("re-page daily while
+  # broken"), which combined with 25 tenants alerting at once produced the ~200
+  # alert flood. A cert lapse is already covered by the daily-renotifying cert
+  # monitors above; this monitor pages once per genuine transition, which is
+  # enough to open an incident.
 
   tags = concat(local.base_tags, ["service:edge-tls", "check:upstream-api-reachability"])
 }
