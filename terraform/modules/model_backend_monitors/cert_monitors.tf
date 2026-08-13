@@ -351,3 +351,103 @@ resource "datadog_monitor" "acm_cert_expiry" {
   # edge-TLS scoped mute or dashboard filter.
   tags = concat(local.base_tags, ["service:acm", "check:acm-cert-expiry"])
 }
+
+# ---------------------------------------------------------------------------
+# Frontend -> upstream API unreachable (server-side TLS/connect failure)
+# ---------------------------------------------------------------------------
+# Added after a 2026-08-13 stateoig outage that BOTH mechanisms above would have
+# missed. The chat-beta frontend's server-side fetch to its own API died in the
+# TLS handshake for ~25h (from 2026-08-12T15:04Z) and nothing alerted:
+#
+#   TypeError: fetch failed
+#   caused by: Error [ERR_TLS_CERT_ALTNAME_INVALID]: Hostname/IP does not match
+#     certificate's altnames: Host: api.beta.prod.stateoig.mcaas.fcs.gsa.gov
+#     is not in the cert's altnames: DNS:*.prod.stateoig.mcaas.fcs.gsa.gov
+#
+# A wildcard cert matches ONE label, so `api.beta.prod.<tenant>` is not covered by
+# `*.prod.<tenant>`. Tenants onboarded to chat-beta before 2026-08 have a deeper
+# `*.beta.prod.<tenant>` cert; the 10 onboarded on 2026-08-13 (stateoig, pc, hud,
+# ncua, nlrb, nrc, ntsb, oge, sss, dnfsb) do not. Users saw 502 on
+# /backend/chat/v1/* (envoy relaying the app's own failure via_upstream).
+#
+# WHY THE SYNTHETICS ABOVE DON'T COVER IT:
+#   - They probe the EDGE from outside. This break is a POD-INTERNAL egress call,
+#     invisible to an external prober even when the edge is perfectly healthy.
+#   - Their edge_hosts default is chat./console.<tenant>.usai.gov — the failing
+#     host (api.beta.prod.<tenant>.mcaas.fcs.gsa.gov) is not in that list.
+#   - They are gated off entirely pending a WAF-allowlisted private location.
+# This monitor needs none of that: the signal is already in the app's own logs.
+#
+# WHY /healthz DIDN'T CATCH IT: the frontend logs this at `warn` from its health
+# handler but still returns 200, so the readiness probe passed, no pod was marked
+# unready, and deployment-availability monitors stayed green for a full day. The
+# durable fix is making that health check fail when its API dependency is
+# unreachable (tracked separately in the frontend repo); this monitor is the
+# safety net that pages regardless of what the probe reports.
+#
+# ABSOLUTE COUNT IS CORRECT HERE (vs. the repo's prefer-rates rule): this is a
+# fixed-cadence health-check log (~every 5s per pod), not user traffic, so the
+# count doesn't scale with tenant size and there is no meaningful denominator.
+# Verified rates on stateoig: baseline 0 over the 2.5 days before the incident
+# (2026-08-10 -> 2026-08-12T15:00Z), ~102 per 5m while broken. Critical 20/10m is
+# ~10% of the observed failure rate yet far above a zero baseline, so a couple of
+# transient blips (a restart, a brief upstream flap) won't page.
+resource "datadog_monitor" "frontend_upstream_api_unreachable" {
+  name = "[${var.tenant}] Frontend - upstream API unreachable (TLS/connect failure)"
+  type = "log alert"
+
+  query = "logs(\"env:production service:usai-frontend \\\"API connection failed\\\"\").index(\"*\").rollup(\"count\").last(\"10m\") > 20"
+
+  message = <<-EOT
+    {{#is_alert}}
+    The chat-beta frontend cannot reach its upstream API ({{value}} failures in 10 minutes). Users get **502** on /backend/chat/v1/* even though the edge and /healthz look healthy — the failing call is the frontend's own server-side fetch.
+
+    Most likely a TLS certificate that does not cover the API hostname: `USAI_API_URL` is `api.beta.<env>.<tenant>.mcaas.fcs.gsa.gov`, and a `*.prod.<tenant>` wildcard does NOT match it (a wildcard covers one label). This was the 2026-08-13 stateoig outage.
+
+    Triage: open the log event and read `@err.stack` — `ERR_TLS_CERT_ALTNAME_INVALID` names both the requested host and the cert's actual altnames. Confirm with:
+    `openssl s_client -connect <api-host>:443 -servername <api-host> | openssl x509 -noout -ext subjectAltName`
+    Fix by issuing a cert covering the API hostname (or pointing `USAI_API_URL` at a cert-valid name). Note: searching the bare string ERR_TLS_CERT_ALTNAME_INVALID returns nothing — it lives in the nested `err.stack` attribute; search `"API connection failed"` instead.
+    ${var.notification_channel}
+    {{/is_alert}}
+    {{#is_warning}}
+    Elevated frontend->API connection failures ({{value}} in 10m). Could be a pod restart or a brief upstream flap; if it persists it is the cert/reachability failure above.
+    {{/is_warning}}
+    {{#is_alert_recovery}}
+    Recovered: the frontend can reach its upstream API again for ${var.tenant}.
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
+
+    Tenant: ${var.tenant} @ Query: service:usai-frontend "API connection failed"
+  EOT
+
+  # Warn tier is deliberately handle-less (a few failures are a ticket, not a
+  # page), so the recovery block MUST be {{#is_alert_recovery}} — bare
+  # {{#is_recovery}} would also fire on WARN->OK and ping the channel.
+  monitor_thresholds {
+    critical = 20
+    warning  = 5
+    # Hysteresis: the health check runs on a fixed 5s cadence, so once broken the
+    # count sits far above the line and only drops to ~0 when genuinely fixed.
+    # Recovering at 0 prevents Alert<->OK flapping while pods roll.
+    critical_recovery = 0
+  }
+
+  include_tags = false
+  notify_audit = false
+
+  # No-data must NOT alert: a tenant not yet running chat-beta emits no
+  # usai-frontend logs at all, so a no-data page would fire for every such tenant.
+  # Absence of the failure log is indistinguishable from absence of the service,
+  # and the service's own availability is covered elsewhere. `on_missing_data`
+  # ("default" = evaluate as not-breaching, never notify on no-data) is the
+  # provider-supported way to express this and matches the other log alerts in
+  # this repo — it CONFLICTS with `notify_no_data`, so only this one is set.
+  on_missing_data = "default"
+
+  # A cert that doesn't cover the hostname stays broken until someone issues a new
+  # one, so re-page daily rather than once — same reasoning as the cert monitors
+  # above (a single missed page cost ~25h on stateoig).
+  renotify_interval = 1440
+
+  tags = concat(local.base_tags, ["service:edge-tls", "check:upstream-api-reachability"])
+}
