@@ -30,26 +30,41 @@
 #                         expiring (not-yet-broken) cert warns early. Handle-less
 #                         (a ticket, not a page).
 #
-# ── CORRECTED 2026-08-18: THE WAF CAVEAT WAS WRONG ──────────────────────────
-# This header used to carry a "LOAD-BEARING CAVEAT" asserting that public Datadog
-# locations are blocked by the edge WAF (default BLOCK + a GSA on-prem/Zscaler
-# allowlist), so `synthetic_locations` had to be a PRIVATE LOCATION and
-# `enable_edge_synthetics` had to stay false until one was provisioned.
+# ── THE WAF CAVEAT IS PER-TENANT, NOT GLOBAL (settled 2026-08-18) ───────────
+# This header long carried a "LOAD-BEARING CAVEAT": public Datadog locations are
+# blocked by the edge WAF (default BLOCK + a GSA on-prem/Zscaler allowlist), so
+# `enable_edge_synthetics` had to stay false pending a private location. It was
+# then retracted wholesale on the strength of 16 hand-built UI synthetics that had
+# been running from the PUBLIC `aws:us-gov-west-1` location since 2026-04 with 15
+# in OK. Both positions were wrong, in opposite directions. The measured truth:
 #
-# That was never true for `aws:us-gov-west-1`, and it gated this whole file off
-# for nothing. Live evidence (2026-08-18): 16 hand-built synthetics have been
-# running from the PUBLIC `aws:us-gov-west-1` location across these same tenant
-# orgs since 2026-04, and 15 sat in OK. They only went red when the tenant
-# hostnames moved to the apex (below) — the WAF was never the blocker.
+#   REACHABILITY FROM aws:us-gov-west-1 IS PER-TENANT.
+#     reachable (15): doc doi dot ed fhfa ftc gsa hhs hud ncua opm pc sss
+#                     stateoig usda
+#     TIMES OUT  (8): dnfsb doj faa nrc ntsb oge nsf eeoc
 #
-# The likely origin of the error: the EEOC incident really was a WAF allowlist
-# block, but that was a CLIENT on a non-allowlisted network, generalized into a
-# claim about Datadog's egress that nobody probed. Cost: ~4 months with the edge
-# unmonitored in Terraform while unmanaged UI tests did the job badly.
+# The 8 fail with "The request couldn't be completed in a reasonable time" — no
+# status code, no TLS error — on the apex AND console, for health, cert and reach
+# alike. That uniformity, plus the absence of any HTTP response, is a silent
+# perimeter drop, not an app fault (their certs and endpoints are fine when probed
+# from inside the allowlist).
 #
-# So `synthetic_locations` now defaults to `["aws:us-gov-west-1"]` and
-# `enable_edge_synthetics` defaults to true. A private location still works if one
-# is ever provisioned; it is simply not required.
+# WHY THE RETRACTION WAS WRONG: the 16 passing tests only ever proved reachability
+# for the hosts they targeted — 14 tenants' chat hosts. They said nothing about the
+# 8 tenants that had never had a test, nor about console.*. Generalizing from the
+# passing sample to all 23 tenants was the same unexamined leap as the original
+# caveat, inverted. It shipped 56 alerting tests across 8 orgs before it was caught.
+#
+# THE LAPTOP TRAP — the reason it got past pre-apply verification: all 46 hostnames
+# were probed with curl and returned 200 with valid certs. But a GSA laptop is on
+# the network that IS in the WAF allowlist, so it reaches every tenant regardless.
+# Laptop curl CANNOT falsify this failure mode. Verify from the Datadog location
+# (create one test, read /api/v1/synthetics/tests/<id>/results) or not at all.
+#
+# So `enable_edge_synthetics` is back to default FALSE and is opted into per tenant
+# in tenants.tf for the 15 verified-reachable orgs. `synthetic_locations` keeps its
+# `["aws:us-gov-west-1"]` default because that location demonstrably works for
+# those 15; a private location would be the way to cover the other 8.
 #
 # ── THE 2026-08 TENANT RENAME (why the UI tests broke) ──────────────────────
 # Tenants moved from `chat.<label>.usai.gov` to the bare apex `<label>.usai.gov`,
