@@ -174,6 +174,11 @@ module "ftc" {
 
   tenant               = "ftc"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: ftc is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- nrc ------------------------------------------------------------------
@@ -352,6 +357,11 @@ module "doc" {
 
   tenant               = "doc"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: doc is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- doi -------------------------------------------------------------------
@@ -385,6 +395,11 @@ module "doi" {
 
   tenant               = "doi"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: doi is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- doli ------------------------------------------------------------------
@@ -493,6 +508,11 @@ module "dot" {
 
   tenant               = "dot"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: dot is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- ed --------------------------------------------------------------------
@@ -526,6 +546,11 @@ module "ed" {
 
   tenant               = "ed"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: ed is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- fhfa ------------------------------------------------------------------
@@ -559,6 +584,11 @@ module "fhfa" {
 
   tenant               = "fhfa"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: fhfa is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- gsa -------------------------------------------------------------------
@@ -592,6 +622,11 @@ module "gsa" {
 
   tenant               = "gsa"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: gsa is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- hhs -------------------------------------------------------------------
@@ -625,6 +660,11 @@ module "hhs" {
 
   tenant               = "hhs"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: hhs is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- hud -------------------------------------------------------------------
@@ -658,6 +698,11 @@ module "hud" {
 
   tenant               = "hud"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: hud is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- ncua ------------------------------------------------------------------
@@ -691,6 +736,11 @@ module "ncua" {
 
   tenant               = "ncua"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: ncua is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- opm -------------------------------------------------------------------
@@ -724,6 +774,11 @@ module "opm" {
 
   tenant               = "opm"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: opm is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- pc --------------------------------------------------------------------
@@ -757,6 +812,11 @@ module "pc" {
 
   tenant               = "pc"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: pc is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- sss -------------------------------------------------------------------
@@ -790,6 +850,11 @@ module "sss" {
 
   tenant               = "sss"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: sss is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- stateoig --------------------------------------------------------------
@@ -823,6 +888,11 @@ module "stateoig" {
 
   tenant               = "stateoig"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: stateoig is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- usda ------------------------------------------------------------------
@@ -856,6 +926,11 @@ module "usda" {
 
   tenant               = "usda"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: usda is verified reachable from the Datadog
+  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
+  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
+  # are deliberately left off.
+  enable_edge_synthetics = true
 }
 
 # ---- nsf --------------------------------------------------------------------

@@ -18,17 +18,26 @@ variable "enable_edge_synthetics" {
   description = <<-EOT
     Create the edge health/TLS/reachability synthetics (cert_monitors.tf).
 
-    Default flipped false -> true on 2026-08-18. The previous default was false on
-    the belief that public Datadog locations are blocked by the edge WAF's
-    GSA/Zscaler allowlist, so a public-location test "would fail forever". That
-    belief was DISPROVEN by live evidence: 16 hand-built synthetics have been
-    running from the PUBLIC `aws:us-gov-west-1` location across these orgs since
-    2026-04, and 15 of them sat in OK — they only broke when the tenant hostnames
-    moved to the apex, not because of the WAF. See the corrected caveat in
-    cert_monitors.tf. No private location is required.
+    DEFAULT FALSE, and it must stay false — opt in PER TENANT in tenants.tf, only
+    after verifying that tenant is reachable FROM THE DATADOG LOCATION.
+
+    Reachability from `aws:us-gov-west-1` is a per-tenant property, not a global
+    one. Measured 2026-08-18 across all 23: 15 tenants respond normally and 8
+    (dnfsb, doj, faa, nrc, ntsb, oge, nsf, eeoc) TIME OUT — "The request couldn't
+    be completed in a reasonable time", with no status code and no TLS error,
+    which is the signature of a silent perimeter drop rather than an app fault.
+
+    HOW TO VERIFY — do NOT use curl from a GSA laptop. A laptop on the GSA network
+    or Zscaler is INSIDE the WAF allowlist, so it reaches every tenant and tells
+    you nothing about Datadog's egress. This exact mistake shipped 56 alerting
+    tests across the 8 unreachable orgs on 2026-08-18: all 46 hostnames were
+    verified 200/valid-cert by laptop curl beforehand. Verify instead by creating
+    ONE test for the tenant, letting it run, and reading the result from
+    `/api/v1/synthetics/tests/<id>/results` — or by adding that tenant's edge to
+    the WAF allowlist for the Datadog gov ranges.
   EOT
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "synthetic_locations" {
