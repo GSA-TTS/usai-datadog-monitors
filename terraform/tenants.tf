@@ -306,6 +306,19 @@ module "ang" {
 
   tenant               = "ang"
   notification_channel = var.notification_channel
+
+  # Edge synthetics OFF for ang: the app is not deployed, so there is nothing at
+  # the edge to probe. Evidence (2026-08-18): ang.usai.gov/healthz returns 503 and
+  # chat./console.ang do not connect at all, while in the ang org the Deployment-
+  # availability, Pod-restart-storm and all three Bedrock monitors read No Data
+  # with EC2/RDS OK — i.e. infrastructure exists, workload does not. The 503 is an
+  # ingress with no backend, not an outage.
+  #
+  # This is a DELIBERATE monitoring gap, not an oversight. Flip to true (delete
+  # this argument) the moment ang's app is deployed — the pre-existing UI synthetic
+  # for ang has been sitting in Alert on exactly this, which is the alert-fatigue
+  # failure mode: a monitor that is always red teaches people to ignore it.
+  enable_edge_synthetics = false
 }
 
 # ---- doc -------------------------------------------------------------------
@@ -405,6 +418,17 @@ module "doli" {
 
   tenant               = "doli"
   notification_channel = var.notification_channel
+
+  # Edge synthetics OFF for doli: it has no working public edge to probe.
+  # Verified 2026-08-18 — doli is the one tenant whose DNS label is not its slug
+  # (it publishes at chat.dol.usai.gov, label `dol`), it has NOT been cut over to
+  # the apex (dol.usai.gov does not resolve at all), and every path on
+  # chat.dol/console.dol returns 404. Enabling here would create three tests that
+  # can only ever fail, i.e. a guaranteed page with no actionable signal.
+  # `edge_domain_label = "dol"` is the correct setting to pair with this once doli
+  # actually serves traffic — left off deliberately so nobody flips the flag and
+  # inherits a wrong hostname too.
+  enable_edge_synthetics = false
 }
 
 # Temporary blanket mute of ALL doli monitors (2026-07-21). doli was paging
