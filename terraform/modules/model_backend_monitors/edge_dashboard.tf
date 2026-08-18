@@ -74,7 +74,7 @@ resource "datadog_dashboard" "edge_request" {
   # ---- Section: istio ingress gateway (envoy) --------------------------------
   widget {
     note_definition {
-      content          = "## istio ingress gateway (envoy)\nThe service-mesh entry point. `errors` break down by `http.status_code`. Edge latency comes from envoy proxy duration (ALB `target_response_time` is not populated here)."
+      content          = "## istio ingress gateway (envoy)\nThe service-mesh entry point. `errors` break down by `http.status_code`. Edge latency comes from envoy proxy duration (ALB `target_response_time` is not populated here).\n\nUse the **5xx by upstream service** graph to judge severity: `resource_name` names the upstream, so internal callers (the frontend polling `api-beta.../health`) separate from user-facing traffic (`chat.core-chat...`, `frontend-apps...`). A flat 503 count says nothing about whether users noticed."
       background_color = "purple"
       font_size        = "14"
       text_align       = "left"
@@ -100,6 +100,28 @@ resource "datadog_dashboard" "edge_request" {
         display_type = "bars"
         style {
           palette = "warm"
+        }
+      }
+    }
+  }
+
+  # Same 5xx, split by UPSTREAM instead of status code. Grouping only by
+  # http.status_code collapses every 503 into one line, which hides whether users
+  # are affected: on 2026-08-18 doc showed 23 ingress 503s in an hour, and the
+  # split was 20 against api-beta (the frontend's own server-side /health poll --
+  # UA=none, source 10.59.x, and the frontend returns 200 to users anyway) versus
+  # 3 against legacy chat, which is where the one real browser session sat. Same
+  # total, completely different severity. resource_name carries the upstream
+  # (e.g. api-beta.api-beta.svc.cluster.local:80/), so it answers "is this users
+  # or health checks?" at a glance.
+  widget {
+    timeseries_definition {
+      title = "Ingress gateway 5xx by upstream service (users vs internal polls)"
+      request {
+        q            = "sum:trace.envoy.proxy.errors{service:istio-ingressgateway.istio-system,http.status_code:5*} by {resource_name}.as_count()"
+        display_type = "bars"
+        style {
+          palette = "orange"
         }
       }
     }
