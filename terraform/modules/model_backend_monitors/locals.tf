@@ -40,4 +40,24 @@ locals {
   # retune can't half-apply (GitHub #33).
   cert_expiry_warn_days = 45 # warn early — cert generation takes ~15m + a PR
   cert_expiry_crit_days = 14 # crit — genuinely close, page it
+
+  # Edge synthetic timing (cert_monitors.tf: edge_health, ssl_cert, https_reach).
+  # Bound here because the same two values appear in every test's options_list AND
+  # are quoted in the alert bodies ("failing for N minutes"), which is exactly the
+  # half-applied-retune shape GitHub #33 called out.
+  #
+  # min_failure_duration deliberately NOT 0. The 16 hand-built UI tests these
+  # resources replace used 0, so a single failed run paged — and combined with
+  # renotify_interval:10 on the usda/ftc tests that produced the every-10-minute
+  # re-trigger flood in the 2026-08-18 report. 300s means two consecutive failed
+  # 5m runs before a page, which no single blip survives.
+  edge_synthetic_tick_s        = 300 # run every 5m
+  edge_synthetic_min_failure_s = 300 # must fail continuously 5m before alerting
+  edge_synthetic_min_failure_m = 5   # same value in minutes, for message text
+
+  # Re-page hourly, not every 10 minutes. An unreachable edge stays unreachable
+  # until someone fixes it, so a single missed page is bad — but 10m across 25
+  # orgs is the flood. 60m is the compromise the cert monitors' 1440 analogue
+  # would be too slow for.
+  edge_synthetic_renotify_min = 60
 }

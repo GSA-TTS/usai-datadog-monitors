@@ -1,10 +1,16 @@
 # ---------------------------------------------------------------------------
-# Edge TLS / reachability monitoring (Synthetics) — added after the 2026-08-04
-# EEOC onboarding incident: the beta-stack rollout generated the beta cert
-# (api.beta.<tenant>...) but NOT the production certs for chat.<tenant>.usai.gov
-# / console.<tenant>.usai.gov, so client TLS failed with a wrong/missing-cert
-# error and nobody was alerted. These catch that class of failure proactively:
+# Edge health / TLS / reachability monitoring (Synthetics) — added after the
+# 2026-08-04 EEOC onboarding incident: the beta-stack rollout generated the beta
+# cert (api.beta.<tenant>...) but NOT the production certs for the tenant's public
+# hosts, so client TLS failed with a wrong/missing-cert error and nobody was
+# alerted. These catch that class of failure proactively:
 #
+#   0. edge_health_<apex> — HTTP synthetic on <label>.usai.gov/healthz asserting
+#                         200 AND a "healthy" status body. This is the app-liveness
+#                         check, and the Terraform-managed replacement for the
+#                         hand-built UI tests that broke in the 2026-08 rename
+#                         (see the rename section below). It is apex-only —
+#                         /healthz is not a valid path on console or api.
 #   1. ssl_cert_<host>  — SSL synthetic: cert present, chain trusted, not
 #                         self-signed, AND more than cert_expiry_crit_days (14)
 #                         to expiry. Datadog's documented SSL failure codes cover
@@ -24,41 +30,183 @@
 #                         expiring (not-yet-broken) cert warns early. Handle-less
 #                         (a ticket, not a page).
 #
-# ── LOAD-BEARING CAVEAT: WAF ALLOWLIST vs SYNTHETIC SOURCE IPs ──────────────
-# These endpoints sit behind a WAF whose default action is BLOCK with an
-# allowlist of GSA on-prem + Zscaler ranges (see the EEOC incident: that
-# allowlist is exactly what the client tripped). Datadog **managed/public**
-# synthetic locations egress from public Datadog IPs that are NOT in that
-# allowlist, so a public-location test would be BLOCKED by the WAF and fail
-# forever — false alerts, not real monitoring.
+# ── CORRECTED 2026-08-18: THE WAF CAVEAT WAS WRONG ──────────────────────────
+# This header used to carry a "LOAD-BEARING CAVEAT" asserting that public Datadog
+# locations are blocked by the edge WAF (default BLOCK + a GSA on-prem/Zscaler
+# allowlist), so `synthetic_locations` had to be a PRIVATE LOCATION and
+# `enable_edge_synthetics` had to stay false until one was provisioned.
 #
-# Therefore `synthetic_locations` defaults to a PRIVATE LOCATION id that must
-# be provisioned inside the tenant network (or its allowlisted egress) and its
-# IP/range added to the WAF allowlist. Until that private location exists,
-# leave `enable_edge_synthetics = false` (the default) so no test is created.
-# Do NOT switch to a public `aws:us-east-1` location expecting it to work —
-# it will be silently blocked. (Same "looks-right-but-doesn't-apply" class as
-# the aigov dashboard-tag gotcha.)
+# That was never true for `aws:us-gov-west-1`, and it gated this whole file off
+# for nothing. Live evidence (2026-08-18): 16 hand-built synthetics have been
+# running from the PUBLIC `aws:us-gov-west-1` location across these same tenant
+# orgs since 2026-04, and 15 sat in OK. They only went red when the tenant
+# hostnames moved to the apex (below) — the WAF was never the blocker.
+#
+# The likely origin of the error: the EEOC incident really was a WAF allowlist
+# block, but that was a CLIENT on a non-allowlisted network, generalized into a
+# claim about Datadog's egress that nobody probed. Cost: ~4 months with the edge
+# unmonitored in Terraform while unmanaged UI tests did the job badly.
+#
+# So `synthetic_locations` now defaults to `["aws:us-gov-west-1"]` and
+# `enable_edge_synthetics` defaults to true. A private location still works if one
+# is ever provisioned; it is simply not required.
+#
+# ── THE 2026-08 TENANT RENAME (why the UI tests broke) ──────────────────────
+# Tenants moved from `chat.<label>.usai.gov` to the bare apex `<label>.usai.gov`,
+# and it is a THREE-part change — each part alone breaks a naive health check:
+#
+#   1. host:  chat.<label>.usai.gov now 301-redirects to <label>.usai.gov.
+#             Tests without follow_redirects fail `statusCode is 200` on the 301.
+#   2. path:  /health is gone. On the apex it returns 404 with the SPA's HTML, so
+#             following the redirect does NOT rescue a /health test. It is /healthz.
+#   3. body:  the old payload was {"status":true}; the apex returns
+#             {"status":"healthy","timestamp":...,"checks":{...}}. A
+#             `$.status contains true` assertion fails against "healthy".
+#
+# Verified 2026-08-18: `https://<label>.usai.gov/healthz` returns 200 with
+# {"status":"healthy"} on all 23 reachable tenants — including tenants whose
+# `chat.` host had not yet been cut over. The apex is therefore safe to target
+# uniformly and needs no per-tenant migration flag.
+#
+# Known non-conforming tenants (both real, neither a rename artifact):
+#   - ang:  ang.usai.gov/healthz returns a genuine 503 and chat./console.ang do
+#           not connect. Its test SHOULD alert; that is a true positive.
+#   - doli: publishes at chat.dol.usai.gov (label `dol`, not the slug) and has no
+#           working apex — 404 on every path. Synthetics disabled for it in
+#           tenants.tf rather than monitoring a host that cannot pass.
 # ---------------------------------------------------------------------------
 
 locals {
-  # Public edge hostnames per tenant. Default derives from the slug
-  # (chat.<tenant>.usai.gov / console.<tenant>.usai.gov) — both patterns verified
-  # to resolve in DNS for gsa and doc (2026-08-04). Override via var.edge_hosts
-  # for any tenant whose naming differs.
+  # DNS label under usai.gov. Usually the tenant slug, but not always — `doli`
+  # publishes under `dol` — so it is a separate override (see var.edge_domain_label).
+  edge_label = var.edge_domain_label != "" ? var.edge_domain_label : var.tenant
+
+  # The apex host is where the chat UI and its /healthz endpoint now live after the
+  # 2026-08 rename. Broken out as its own local because the health check targets
+  # ONLY this host, while the TLS/reachability tests cover the full host list.
+  edge_apex_host = "${local.edge_label}.usai.gov"
+
+  # Public edge hostnames per tenant. Apex (was chat.<label>, now 301s to apex) +
+  # console. Both verified to resolve and serve 200 on 2026-08-18. Override via
+  # var.edge_hosts for any tenant whose naming differs beyond the label.
   edge_hosts = length(var.edge_hosts) > 0 ? var.edge_hosts : [
-    "chat.${var.tenant}.usai.gov",
-    "console.${var.tenant}.usai.gov",
+    local.edge_apex_host,
+    "console.${local.edge_label}.usai.gov",
   ]
 
-  # Only create synthetics when explicitly enabled AND a private location is set
-  # (public locations are blocked by the WAF — see the caveat above).
+  # Only create synthetics when enabled AND a location is set. Both now default to
+  # on/public — the private-location requirement was based on a WAF claim that
+  # live evidence disproved (see the corrected caveat above).
   edge_synthetics_enabled = var.enable_edge_synthetics && length(var.synthetic_locations) > 0
 
   edge_hosts_effective = local.edge_synthetics_enabled ? local.edge_hosts : []
 
-  # cert_expiry_warn_days / cert_expiry_crit_days live in locals.tf (the repo's
-  # single source of truth for monitor thresholds — GitHub #33).
+  # The app health check is apex-only on purpose. /healthz is NOT a universal
+  # path: on console.<label>.usai.gov it 302-redirects to a login callback, and on
+  # the API host it 404s (the API's health endpoint is still /health returning
+  # {"status":true}). Iterating edge_hosts here would create a guaranteed-failing
+  # console test, so this list is deliberately just the apex. Console and API
+  # liveness is covered by https_reach below asserting 200 on `/`.
+  edge_health_hosts = local.edge_synthetics_enabled ? [local.edge_apex_host] : []
+
+  # cert_expiry_warn_days / cert_expiry_crit_days and the edge_synthetic_* timing
+  # values live in locals.tf (the repo's single source of truth — GitHub #33).
+}
+
+# --- 0. App health check (/healthz) — replaces the 16 hand-built UI tests ----
+# This is the Terraform-managed successor to the UI-created "Test on
+# chat.<tenant>.usai.gov/health" / "Health Monitor" / "USDA Health Check
+# Notification" synthetics that broke in the 2026-08 rename. It differs from those
+# in four ways that matter, each one a repo convention they violated:
+#
+#   1. Target is the apex + /healthz + the "healthy" body shape (the rename fix).
+#   2. The notification handle is scoped to {{#is_alert}} / {{#is_alert_recovery}}.
+#      The UI tests put a bare handle on the FIRST line of the message, outside
+#      every conditional, so it rendered on every state transition — the exact
+#      flood PR #22 removed from the v0.1.0 monitors.
+#   3. min_failure_duration 300s, not 0 — a single failed run cannot page.
+#   4. renotify 60m, not 10m. usda's and ftc's 10m re-notify is what turned one
+#      broken endpoint into a page every ten minutes per org.
+#
+# It also uses {{#is_alert_recovery}} rather than bare {{#is_recovery}}. There is
+# no warn tier here (an endpoint is up or it is not), so bare would be safe today,
+# but the UI tests used {{#is_recovery}} and the repo convention is to keep the
+# handle on the critical path only.
+resource "datadog_synthetics_test" "edge_health" {
+  for_each = toset(local.edge_health_hosts)
+
+  name      = "[${var.tenant}] App health check failing — ${each.value}/healthz"
+  type      = "api"
+  subtype   = "http"
+  status    = "live"
+  locations = var.synthetic_locations
+  message   = <<-EOT
+    {{#is_alert}}
+    The ${var.tenant} chat app is failing its health check: `https://${each.value}/healthz` has not returned a healthy response for ${local.edge_synthetic_min_failure_m} minutes. Users are likely seeing errors or a blank app.
+
+    The endpoint returns `{"status":"healthy","checks":{"cache":...,"api":...}}` when well, so a failure is either the app being down/unready or one of its own dependencies (cache, upstream API) failing. Open the test result to see the status code and body.
+
+    Triage order: check the deployment-availability and pod-restart-storm monitors for this tenant first (a stuck rollout explains most of these), then the upstream-API-unreachable monitor if the body shows the `api` check failing.
+    ${var.notification_channel}
+    {{/is_alert}}
+    {{#is_alert_recovery}}
+    Recovered: ${each.value}/healthz is returning healthy again for ${var.tenant}.
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
+
+    Tenant: ${var.tenant} @ Health endpoint: https://${each.value}/healthz
+  EOT
+
+  request_definition {
+    method = "GET"
+    url    = "https://${each.value}/healthz"
+  }
+
+  # 200 is necessary but not sufficient: assert the body too. A 200 with a
+  # degraded payload is a real failure mode here because /healthz aggregates the
+  # app's cache and upstream-API checks — that is precisely the signal the
+  # stateoig outage needed and the readiness probe missed (see
+  # frontend_upstream_api_unreachable below, which caught it from logs instead).
+  assertion {
+    type     = "statusCode"
+    operator = "is"
+    target   = 200
+  }
+
+  # `contains` rather than `is` so a future additive change to the status string
+  # ("healthy (degraded cache)") does not turn into a false page, while a genuine
+  # "unhealthy" still fails. Note the migration trap this replaces: the UI tests
+  # asserted `$.status contains true` against the OLD {"status":true} payload,
+  # which silently fails against the apex's {"status":"healthy"}.
+  assertion {
+    type     = "body"
+    operator = "validatesJSONPath"
+    targetjsonpath {
+      jsonpath    = "$.status"
+      operator    = "contains"
+      targetvalue = "healthy"
+    }
+  }
+
+  options_list {
+    tick_every = local.edge_synthetic_tick_s
+    # Follow redirects defensively. The apex serves /healthz directly today, so
+    # this is not load-bearing — but it is exactly what the UI tests lacked when
+    # chat.<label> started 301ing, and it costs nothing to be resilient to a
+    # future host move.
+    follow_redirects     = true
+    min_failure_duration = local.edge_synthetic_min_failure_s
+    min_location_failed  = 1
+    retry {
+      count    = 2
+      interval = 30000
+    }
+    monitor_options {
+      renotify_interval = local.edge_synthetic_renotify_min
+    }
+  }
+
+  tags = concat(local.base_tags, ["service:edge-health", "check:app-healthz"])
 }
 
 # --- 1. SSL cert validity + expiry (the direct EEOC fix) --------------------
@@ -102,9 +250,9 @@ resource "datadog_synthetics_test" "ssl_cert" {
   }
 
   options_list {
-    tick_every           = 300 # every 5m
+    tick_every           = local.edge_synthetic_tick_s
     accept_self_signed   = false
-    min_failure_duration = 300
+    min_failure_duration = local.edge_synthetic_min_failure_s
     min_location_failed  = 1
     retry {
       count    = 2
@@ -112,7 +260,10 @@ resource "datadog_synthetics_test" "ssl_cert" {
     }
     # A broken/expiring cert stays broken until someone rotates it, so re-page
     # daily rather than once — a single missed page means the cert lapses. Same
-    # reasoning as cronjob_failing's 1440 in PR #39.
+    # reasoning as cronjob_failing's 1440 in PR #39. Deliberately NOT the shared
+    # edge_synthetic_renotify_min (60m): an expiring cert is a slow, days-long
+    # countdown, so hourly nagging is pure noise where hourly is right for a
+    # down endpoint.
     monitor_options {
       renotify_interval = 1440
     }
@@ -148,10 +299,12 @@ resource "datadog_synthetics_test" "https_reach" {
     url    = "https://${each.value}/"
   }
 
-  # statusCode only supports is/isNot operators. Follow redirects so chat's
-  # 302 -> /auth/login -> Keycloak resolves to a final 200 (console is 200
-  # directly). This also exercises the full TLS chain incl. auth.usai.gov. A
-  # missing/bad cert or upstream drop fails the request before any assertion.
+  # statusCode only supports is/isNot operators. Follow redirects so the apex's
+  # auth bounce (-> /auth/login -> Keycloak) resolves to a final 200, and so the
+  # legacy chat.<label> 301 -> apex is followed rather than failing the assertion.
+  # Console returns 200 directly. This also exercises the full TLS chain incl.
+  # auth.usai.gov. A missing/bad cert or upstream drop fails the request before
+  # any assertion is evaluated.
   assertion {
     type     = "statusCode"
     operator = "is"
@@ -159,17 +312,19 @@ resource "datadog_synthetics_test" "https_reach" {
   }
 
   options_list {
-    tick_every           = 300
+    tick_every           = local.edge_synthetic_tick_s
     follow_redirects     = true
-    min_failure_duration = 300
+    min_failure_duration = local.edge_synthetic_min_failure_s
     min_location_failed  = 1
     retry {
       count    = 2
       interval = 30000
     }
-    # Re-page daily while the edge stays unreachable (see the ssl_cert note).
+    # Re-page hourly while the edge stays unreachable. Unlike the cert tests
+    # (daily — a cert countdown moves slowly), an unreachable edge is an active
+    # outage, so it shares the health check's cadence.
     monitor_options {
-      renotify_interval = 1440
+      renotify_interval = local.edge_synthetic_renotify_min
     }
   }
 
@@ -235,7 +390,7 @@ resource "datadog_synthetics_test" "ssl_cert_expiring_soon" {
   options_list {
     tick_every           = 3600 # hourly is ample for a 45-day countdown
     accept_self_signed   = false
-    min_failure_duration = 300
+    min_failure_duration = local.edge_synthetic_min_failure_s
     min_location_failed  = 1
   }
 
@@ -369,13 +524,18 @@ resource "datadog_monitor" "acm_cert_expiry" {
 # `*.beta.prod.<tenant>` cert; the 10 onboarded on 2026-08-13 do not. Users saw
 # 502 on /backend/chat/v1/* (envoy relaying the app's own failure via_upstream).
 #
-# WHY THE SYNTHETICS ABOVE DON'T COVER IT:
+# WHY THE SYNTHETICS ABOVE DON'T FULLY COVER IT:
 #   - They probe the EDGE from outside. This break is a POD-INTERNAL egress call,
 #     invisible to an external prober even when the edge is perfectly healthy.
-#   - Their edge_hosts default is chat./console.<tenant>.usai.gov — the failing
-#     host (api.beta.prod.<tenant>.mcaas.fcs.gsa.gov) is not in that list.
-#   - They are gated off entirely pending a WAF-allowlisted private location.
-# This monitor needs none of that: the signal is already in the app's own logs.
+#   - Their edge_hosts default is <label>.usai.gov + console.<label>.usai.gov —
+#     the failing host (api.beta.prod.<tenant>.mcaas.fcs.gsa.gov) is not in that
+#     list, and would not be a sensible thing to probe from a public location.
+# (Two claims that WERE here are now obsolete: the synthetics are no longer "gated
+# off pending a private location" — that gate was based on a disproven WAF claim,
+# see the header — and the edge_health check added above DOES now assert the
+# /healthz body, so a degraded `api` dependency check is visible externally. This
+# log monitor is still the durable safety net: it names the failing host and the
+# TLS error, and it fires even if /healthz keeps returning 200.)
 #
 # WHY /healthz DIDN'T CATCH IT: the frontend logs this at `warn` from its health
 # handler but still returns 200, so the readiness probe passed, no pod was marked

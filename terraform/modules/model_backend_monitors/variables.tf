@@ -16,26 +16,31 @@ variable "notification_channel" {
 
 variable "enable_edge_synthetics" {
   description = <<-EOT
-    Create the edge TLS/reachability synthetics (cert_monitors.tf). Default false
-    because the tests are useless until a Datadog PRIVATE LOCATION exists inside
-    the tenant's allowlisted egress — public Datadog synthetic IPs are blocked by
-    the edge WAF's GSA/Zscaler allowlist and would fail forever. Set true (and
-    provide synthetic_locations) once a private location is provisioned and its
-    egress is added to the WAF allowlist.
+    Create the edge health/TLS/reachability synthetics (cert_monitors.tf).
+
+    Default flipped false -> true on 2026-08-18. The previous default was false on
+    the belief that public Datadog locations are blocked by the edge WAF's
+    GSA/Zscaler allowlist, so a public-location test "would fail forever". That
+    belief was DISPROVEN by live evidence: 16 hand-built synthetics have been
+    running from the PUBLIC `aws:us-gov-west-1` location across these orgs since
+    2026-04, and 15 of them sat in OK — they only broke when the tenant hostnames
+    moved to the apex, not because of the WAF. See the corrected caveat in
+    cert_monitors.tf. No private location is required.
   EOT
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "synthetic_locations" {
   description = <<-EOT
-    Datadog Synthetics location ids to run the edge tests from. Must be a
-    PRIVATE LOCATION id (pl:...) whose egress is in the edge WAF allowlist — NOT
-    a public location like aws:us-east-1 (blocked by the WAF). Empty disables
-    synthetic creation regardless of enable_edge_synthetics.
+    Datadog Synthetics location ids to run the edge tests from. Defaults to the
+    public GovCloud location `aws:us-gov-west-1`, which is verified to reach these
+    endpoints (see enable_edge_synthetics). A private location id (pl:...) also
+    works if one is ever provisioned. Empty disables synthetic creation regardless
+    of enable_edge_synthetics.
   EOT
   type        = list(string)
-  default     = []
+  default     = ["aws:us-gov-west-1"]
 }
 
 variable "enable_acm_cert_monitor" {
@@ -51,11 +56,31 @@ variable "enable_acm_cert_monitor" {
   default     = false
 }
 
+variable "edge_domain_label" {
+  description = <<-EOT
+    DNS label under usai.gov for this tenant, when it differs from the tenant
+    slug. Empty means "same as var.tenant".
+
+    Exists because the slug and the DNS label are NOT always equal: tenant `doli`
+    publishes at `chat.dol.usai.gov` (label `dol`), so a slug-derived host would
+    silently monitor a name that does not resolve. Overriding the label fixes both
+    the apex and console hosts at once; use var.edge_hosts instead if a tenant
+    needs a wholly different host list.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "edge_hosts" {
   description = <<-EOT
     Override the public edge hostnames monitored for this tenant. Empty uses the
-    slug-derived default: chat.<tenant>.usai.gov + console.<tenant>.usai.gov.
-    Set explicitly for tenants whose edge naming differs.
+    label-derived default: <label>.usai.gov + console.<label>.usai.gov, where
+    <label> is var.edge_domain_label (or var.tenant). Set explicitly for tenants
+    whose edge naming differs beyond the label.
+
+    NOTE the apex: as of the 2026-08 tenant rename the chat UI is served from the
+    bare `<label>.usai.gov`, and `chat.<label>.usai.gov` 301-redirects to it. The
+    old `chat.` default is gone — see the rename note in cert_monitors.tf.
   EOT
   type        = list(string)
   default     = []
