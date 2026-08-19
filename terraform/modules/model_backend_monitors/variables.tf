@@ -65,6 +65,25 @@ variable "enable_acm_cert_monitor" {
   default     = false
 }
 
+variable "enable_keycloak_realm_synthetic" {
+  description = <<-EOT
+    Create the per-tenant Keycloak realm-availability synthetic
+    (api_auth_synthetics.tf). Default TRUE for every tenant, unlike
+    enable_edge_synthetics.
+
+    Why it can default on when the edge synthetics cannot: this probes
+    auth.usai.gov — shared aigov infrastructure — not the tenant's own edge, so the
+    per-tenant WAF reachability that blocks 8 tenants does not apply. doj is one of
+    those 8 and its hand-built version of this test passed from
+    aws:us-gov-west-1 throughout, which is the evidence.
+
+    Set false for a tenant with no Keycloak realm. All 25 realms were verified to
+    exist and return a matching name on 2026-08-19.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "app_namespaces" {
   description = <<-EOT
     Kubernetes namespaces holding the USAI application, used to scope the

@@ -323,6 +323,10 @@ module "ang" {
   # this argument) the moment ang's app is deployed — the pre-existing UI synthetic
   # for ang has been sitting in Alert on exactly this, which is the alert-fatigue
   # failure mode: a monitor that is always red teaches people to ignore it.
+  # Re-verified 2026-08-19 after the platform-wide cutover: ang.usai.gov still
+  # returns 503 and chat./console.ang still do not connect, so still not deployed.
+  # NOTE ang DOES get the Keycloak realm synthetic (realm `ang` verified live) —
+  # that one targets shared aigov infra, not ang's absent edge.
   enable_edge_synthetics = false
 }
 
@@ -435,15 +439,19 @@ module "doli" {
   notification_channel = var.notification_channel
 
   # Edge synthetics OFF for doli: it has no working public edge to probe.
-  # Verified 2026-08-18 — doli is the one tenant whose DNS label is not its slug
-  # (it publishes at chat.dol.usai.gov, label `dol`), it has NOT been cut over to
-  # the apex (dol.usai.gov does not resolve at all), and every path on
-  # chat.dol/console.dol returns 404. Enabling here would create three tests that
-  # can only ever fail, i.e. a guaranteed page with no actionable signal.
-  # `edge_domain_label = "dol"` is the correct setting to pair with this once doli
-  # actually serves traffic — left off deliberately so nobody flips the flag and
-  # inherits a wrong hostname too.
+  # Re-verified 2026-08-19, after the platform-wide <tenant>.usai.gov cutover —
+  # doli did NOT come along: dol.usai.gov and doli.usai.gov both still fail to
+  # resolve, and every path on chat.dol/console.dol returns 404. Enabling would
+  # create tests that can only ever fail. Flip to true once doli actually serves.
   enable_edge_synthetics = false
+
+  # doli is the one tenant whose DNS label is not its slug — it publishes under
+  # `dol` (chat.dol.usai.gov). Now set explicitly because the Keycloak realm
+  # synthetic keys off this label and doli's REALM is also `dol`:
+  # auth.usai.gov/realms/doli is a 404, /realms/dol returns 200 (verified
+  # 2026-08-19). Safe to set while enable_edge_synthetics is false — it only
+  # corrects the name, it does not create any edge test.
+  edge_domain_label = "dol"
 }
 
 # Temporary blanket mute of ALL doli monitors (2026-07-21). doli was paging
