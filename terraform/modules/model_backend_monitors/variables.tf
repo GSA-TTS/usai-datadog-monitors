@@ -112,6 +112,26 @@ variable "app_namespaces" {
   default     = ["core-api", "core-chat", "core-console", "chat-beta", "api-beta"]
 }
 
+variable "cert_hosts" {
+  description = <<-EOT
+    Override which hosts get TLS certificate checks. Empty means apex-only.
+
+    Apex-only is correct because every enabled tenant serves ONE certificate across
+    apex, console and api — verified 2026-08-19 by comparing cert serials on all
+    three hosts for all 15 tenants (identical in every case; one ACM cert carries
+    all the names, e.g. ed's SANs are api.ed / console.ed / chat.ed / ed.usai.gov).
+    Running cert checks per host therefore produced 3 identical expiry alerts for
+    one cert renewal.
+
+    Set explicitly if a tenant ever gets a SEPARATE cert for api or console. To
+    check: `openssl s_client -connect <host>:443 -servername <host> | openssl x509
+    -noout -serial` on each host and compare. Reachability is unaffected either way
+    — https_reach always runs on every host in var.edge_hosts.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "edge_domain_label" {
   description = <<-EOT
     DNS label under usai.gov for this tenant, when it differs from the tenant

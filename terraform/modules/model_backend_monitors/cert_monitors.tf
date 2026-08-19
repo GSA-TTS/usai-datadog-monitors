@@ -26,9 +26,31 @@
 #                         name-mismatched cert, whereas Datadog's SSL-test docs
 #                         confirm expiry/trust/self-signed failures but do not
 #                         document SAN verification.
-#   3. ssl_cert_expiring_soon_<host> — the same SSL assertion at 45 days, so an
-#                         expiring (not-yet-broken) cert warns early. Handle-less
-#                         (a ticket, not a page).
+#   3. ssl_cert_expiring_soon_<apex> — the same SSL assertion at 45 days, so an
+#                         expiring (not-yet-broken) cert surfaces early. PAGES,
+#                         and re-pages DAILY until renewed (changed 2026-08-19 —
+#                         see below).
+#
+# Checks 1 and 3 are APEX-ONLY; check 2 runs on every host. One ACM cert carries
+# apex + console + api for a tenant, so per-host cert checks were 3 alerts for 1
+# renewal (see the cert_hosts local).
+#
+# ── 2026-08-19: THE 45-DAY TIER NOW PAGES (it used to be deliberately quiet) ──
+# This tier shipped handle-less on the reasoning that "a cert 45 days out is a
+# ticket, not a page". In practice there was no ticket: ed and gsa both reached
+# **18 days** to expiry with their alerts sitting in Datadog, seen by nobody,
+# because a handle-less monitor notifies no one and nothing else was watching. The
+# quiet tier was indistinguishable from no monitoring.
+#
+# It now carries the notification handle and re-notifies daily. That is a
+# deliberate reversal of the repo's usual "warn tiers don't page" convention, and
+# the justification is that this is not really a warn tier: it is the ONLY
+# actionable window. By the time the 14-day tier fires, renewal (ACM issuance plus
+# a PR) is already tight. Renewing at 45 days is routine; renewing at 14 is an
+# incident.
+#
+# Daily repetition is the point — an expiring cert stays expiring until someone
+# acts, so a single missed page means it lapses.
 #
 # ── THE WAF CAVEAT IS PER-TENANT, NOT GLOBAL (settled 2026-08-18) ───────────
 # This header long carried a "LOAD-BEARING CAVEAT": public Datadog locations are
@@ -128,6 +150,31 @@ locals {
   edge_synthetics_enabled = var.enable_edge_synthetics && length(var.synthetic_locations) > 0
 
   edge_hosts_effective = local.edge_synthetics_enabled ? local.edge_hosts : []
+
+  # ── CERT CHECKS ARE APEX-ONLY (deduplicated 2026-08-19) ────────────────────
+  # The TLS checks used to run against every host in local.edge_hosts, which meant
+  # 3 ssl_cert + 3 ssl_cert_expiring_soon tests per tenant. All six watched the SAME
+  # CERTIFICATE: verified across all 15 enabled tenants that apex, console and api
+  # present an identical cert (same serial, same expiry), because one ACM cert
+  # carries all the names — e.g. ed's SANs are
+  # `api.ed.usai.gov, console.ed.usai.gov, chat.ed.usai.gov, ed.usai.gov`.
+  #
+  # The duplication was not harmless: when ed/gsa/opm crossed the 45-day line they
+  # each produced THREE identical expiry alerts instead of one, which is 3x the page
+  # volume for one action (renew one cert). Collapsing to the apex keeps identical
+  # coverage — a missing, expired, untrusted or wrong-name cert on the shared cert
+  # is caught exactly as before.
+  #
+  # NOTE this is only true while the hosts share a cert. If a tenant ever gets a
+  # separate cert for api or console, add those hosts via var.cert_hosts — the check
+  # to run is `openssl s_client -connect <host>:443 | openssl x509 -noout -serial`
+  # on each host and compare serials.
+  #
+  # Per-host REACHABILITY is unaffected: https_reach still runs on all three hosts,
+  # because they front genuinely different backends.
+  cert_hosts = length(var.cert_hosts) > 0 ? var.cert_hosts : [local.edge_apex_host]
+
+  cert_hosts_effective = local.edge_synthetics_enabled ? local.cert_hosts : []
 
   # The app health check is apex-only on purpose. /healthz is NOT a universal
   # path: on console.<label>.usai.gov it 302-redirects to a login callback, and on
@@ -239,7 +286,7 @@ resource "datadog_synthetics_test" "edge_health" {
 
 # --- 1. SSL cert validity + expiry (the direct EEOC fix) --------------------
 resource "datadog_synthetics_test" "ssl_cert" {
-  for_each = toset(local.edge_hosts_effective)
+  for_each = toset(local.cert_hosts_effective)
 
   name      = "[${var.tenant}] Edge TLS cert invalid/missing — ${each.value}"
   type      = "api"
@@ -383,10 +430,13 @@ resource "datadog_synthetics_test" "https_reach" {
 # the unit conversion, AND the unverified `check_id` tag key in one move — it is
 # the one form the provider docs explicitly demonstrate for SSL tests.
 #
-# Handle-less by design: a cert 45 days out is a ticket, not a page. Only the
-# 14-day test (check 1) carries the notification handle.
+# PAGES, and re-pages daily (changed 2026-08-19). This was handle-less on the
+# theory that a 45-day cert is a ticket rather than a page; in practice no ticket
+# existed and ed/gsa silently reached 18 days. See the file header for the full
+# reasoning — the short version is that 45 days is the only comfortable window to
+# renew in, so it is the one that should reach a human.
 resource "datadog_synthetics_test" "ssl_cert_expiring_soon" {
-  for_each = toset(local.edge_hosts_effective)
+  for_each = toset(local.cert_hosts_effective)
 
   name      = "[${var.tenant}] Edge TLS cert expiring soon (<${local.cert_expiry_warn_days}d) — ${each.value}"
   type      = "api"
@@ -395,10 +445,16 @@ resource "datadog_synthetics_test" "ssl_cert_expiring_soon" {
   locations = var.synthetic_locations
   message   = <<-EOT
     {{#is_alert}}
-    TLS certificate for ${each.value} (${var.tenant}) expires in fewer than ${local.cert_expiry_warn_days} days. Rotate/renew via ACM before it breaks client access — cert generation plus a PR takes time, so do not wait for the hard failure. No page is sent for this tier; the ${local.cert_expiry_crit_days}-day test pages.
+    TLS certificate for ${each.value} (${var.tenant}) expires in fewer than ${local.cert_expiry_warn_days} days. **Renew it via ACM now** — cert generation plus a PR takes time, so do not wait for the hard failure at ${local.cert_expiry_crit_days} days.
+
+    This one certificate covers the apex, console and api hostnames for this tenant, so renewing it fixes all three at once. When it lapses, every client hitting any of those names gets a TLS error.
+
+    This page repeats DAILY until the cert is renewed.
+    ${var.notification_channel}
     {{/is_alert}}
     {{#is_alert_recovery}}
     Recovered: cert for ${each.value} renewed — more than ${local.cert_expiry_warn_days} days remaining.
+    ${var.notification_channel}
     {{/is_alert_recovery}}
 
     Tenant: ${var.tenant} @ Edge host: ${each.value}
@@ -420,6 +476,13 @@ resource "datadog_synthetics_test" "ssl_cert_expiring_soon" {
     accept_self_signed   = false
     min_failure_duration = local.edge_synthetic_min_failure_s
     min_location_failed  = 1
+    # Re-page DAILY until someone renews. Same reasoning as the 14-day tier: an
+    # expiring cert stays expiring until acted on, so a single page that gets
+    # missed means the cert lapses — which is exactly what nearly happened when
+    # this tier was handle-less (see the header note).
+    monitor_options {
+      renotify_interval = 1440
+    }
   }
 
   tags = concat(local.base_tags, ["service:edge-tls", "check:cert-expiry"])
