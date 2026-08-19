@@ -65,6 +65,34 @@ variable "enable_acm_cert_monitor" {
   default     = false
 }
 
+variable "app_namespaces" {
+  description = <<-EOT
+    Kubernetes namespaces holding the USAI application, used to scope the
+    deployment-availability monitor. An ALLOWLIST, deliberately — not a blocklist
+    of platform namespaces.
+
+    Why: the monitor was originally scoped `{*}`, so it watched every deployment in
+    the cluster including platform add-ons. On 2026-07-22 a Calico upgrade added
+    `goldmane` and `whisker` to `calico-system` on eeoc; both sat unready and the
+    monitor paged every 2h for 28 days about components that are not USAI and not
+    on-call's to fix (12 emails/day). A blocklist would have needed editing for
+    each new add-on — i.e. it fails open, exactly the way this did. An allowlist
+    fails closed: a new platform namespace is ignored by default.
+
+    The trade-off is real: a NEW USAI namespace must be added here or it goes
+    unmonitored. Verified 2026-08-19 against live kube-state-metrics — the app runs
+    in these five, and the other nine namespaces in-cluster (amazon-cloudwatch,
+    calico-system, cattle-fleet-system, cattle-system, flux-system, istio-system,
+    kube-system, mcaas-backend, tigera-operator) are all platform.
+
+    Note what is NOT lost by excluding istio-system/mcaas-backend: a broken
+    istio-ingressgateway surfaces via the edge synthetics, and a broken
+    datadog-cluster-agent via the agent-telemetry monitor.
+  EOT
+  type        = list(string)
+  default     = ["core-api", "core-chat", "core-console", "chat-beta", "api-beta"]
+}
+
 variable "edge_domain_label" {
   description = <<-EOT
     DNS label under usai.gov for this tenant, when it differs from the tenant

@@ -192,7 +192,15 @@ resource "datadog_monitor" "deployment_unavailable" {
   # rolling-update dip averages back below 1 and self-clears. Grouped by
   # cluster+namespace+deployment so multi-cluster orgs don't cross-aggregate and
   # the alert names the offender.
-  query = "avg(last_30m):( max:kubernetes_state.deployment.replicas_desired{*} by {kube_cluster_name,kube_namespace,kube_deployment} - max:kubernetes_state.deployment.replicas_ready{*} by {kube_cluster_name,kube_namespace,kube_deployment} ) >= 1"
+  #
+  # SCOPED TO var.app_namespaces (was `{*}`). Unscoped, this watched every
+  # deployment in the cluster: a 2026-07 Calico upgrade added goldmane+whisker to
+  # calico-system on eeoc, both stayed unready, and this paged every 2h for 28 days
+  # about add-ons that are not USAI and not on-call's to fix. `IN (...)` verified
+  # against the live gov query API 2026-08-19 — returns exactly the 9 app
+  # deployments across the 5 app namespaces. See var.app_namespaces for why this is
+  # an allowlist rather than a blocklist of platform namespaces.
+  query = "avg(last_30m):( max:kubernetes_state.deployment.replicas_desired{kube_namespace IN (${join(",", var.app_namespaces)})} by {kube_cluster_name,kube_namespace,kube_deployment} - max:kubernetes_state.deployment.replicas_ready{kube_namespace IN (${join(",", var.app_namespaces)})} by {kube_cluster_name,kube_namespace,kube_deployment} ) >= 1"
 
   message = <<-EOT
     {{#is_alert}}
