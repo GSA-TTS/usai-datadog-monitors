@@ -285,32 +285,74 @@ resource "datadog_monitor" "deployment_unavailable" {
 # ~2 deployments on doc/ftc), so its per-group pages remain low-volume.
 # Grouped by cluster+namespace+deployment so the alert names the offender and
 # multi-cluster orgs don't cross-aggregate.
+# ── 2026-08-20: THIS MONITOR CLAIMED A CAUSE IT NEVER CHECKED ────────────────
+# It used to be named "...(deployment cycling pods, image unchanged)" and its body
+# asserted "This is a restart STORM, not a deploy: check whether the image tag is
+# actually changing". The query has NEVER looked at the image — it measures only
+# `avg pod age < 90m over 4h`. It cannot tell a fault-driven restart loop from a
+# burst of rapid deploys, so the confident claim was simply wrong whenever the
+# cause was deploys.
+#
+# It misfired exactly that way on 2026-08-20: 214 alerting groups across 23 of 25
+# orgs (every deployed tenant, all 9 app deployments each), all asserting "image
+# unchanged" and pointing triage at external-secrets and HPA metrics. The real
+# cause was 20 reconcile-triggering commits to the shared Flux mono-repo
+# (mcaas-gsai/gsai-flux-mono) between 15:34Z and 19:27Z — including 5 "Automated
+# image update" commits, so the images WERE changing — with the first, PR #411,
+# touching base/apps/console-pipeline/helmrelease.yaml, which every tenant
+# inherits. One base/ change rolls the whole fleet; ~one reconcile every 12 minutes
+# matched the measured pod-age reset cadence exactly.
+#
+# Ruled out by measurement that day, and worth keeping as the discriminator list:
+#   - metric artifact: kube-state-metrics + cluster-agent restarts 0; pod.age
+#     series continuous (179 points, 0 nulls)
+#   - node churn: node counts flat all day
+#   - HPA thrash: every HPA pinned at its min, zero oscillation
+#   - crash loop: app container restart counts FLAT (delta 0) — pods were being
+#     REPLACED, not restarted
+#
+# The monitor still PAGES, deliberately: `replicas_ready` on ftc's chat dipped to
+# 1 of 8 during the churn, so a deploy storm is not harmless. Notably
+# deployment_unavailable did NOT fire for it — the dips were brief enough to
+# average out over its 30m window — so this monitor is the only thing that caught
+# a real availability degradation. Demoting it to a warn tier would have lost that.
+#
+# What changed instead: the name and body no longer assert a cause, they describe
+# what is measured and hand over a decision procedure; and notify_by collapses the
+# per-deployment fan-out to one notification per cluster (see below).
 resource "datadog_monitor" "pod_restart_storm" {
-  name = "[${var.tenant}] Pod restart storm (deployment cycling pods, image unchanged)"
+  name = "[${var.tenant}] Pods cycling — deployments not staying up (deploy storm or restart loop)"
   type = "query alert"
 
   query = "max(last_4h):avg:kubernetes_state.pod.age{*} by {kube_cluster_name,kube_namespace,kube_deployment} < ${local.pod_storm_critical_s}"
 
   message = <<-EOT
     {{#is_alert}}
-    Deployment {{kube_deployment.name}} in {{kube_namespace.name}} has been cycling its pods continuously — across the last 4 hours its pods never aged past 90 minutes ({{value}}s peak). Healthy deployments age their pods to hours/days, and even a one-off rollout ages its new pods past 2h within the window; this one is being restarted faster than its pods can age.
+    One or more deployments in ${var.tenant} have been cycling pods continuously — across the last 4 hours their pods never aged past 90 minutes. Healthy deployments age pods to hours or days, and even a one-off rollout ages its new pods past 2h inside the window. **Open the monitor to see which deployments are in Alert** — this notification is deduplicated to one per cluster, so the list is on the monitor page, not in this email.
 
-    This is a restart STORM, not a deploy: check whether the image tag is actually changing (`kubectl get rs -n {{kube_namespace.name}}` — look for many ReplicaSets on the same image). Likely causes seen on 2026-07-22:
-    - external-secrets refreshing a Secret on a loop, with a reloader (Stakater / checksum annotation) restarting every workload that mounts it — even when the value didn't change.
-    - An HPA flapping replicas because it can't read CPU/mem off never-ready pods (FailedGetResourceMetric).
+    WHAT THIS MEASURES, AND WHAT IT DOES NOT: the query is `avg pod age < 90m over 4h`. It proves pods are being replaced faster than they can age. It does **not** identify why, and it does **not** check the image — do not assume a fault.
 
-    Correlate the `ExternalSecret ... secret updated` events and the deployment's ReplicaSet count. This is platform/app config (external-secrets + reloader), not a Datadog-monitors issue.
+    Work the causes in this order, cheapest first:
+
+    1. **A deploy storm — check this FIRST, it is the most common cause.** Many rapid rollouts look identical to a fault through this metric. Check the shared Flux mono-repo `mcaas-gsai/gsai-flux-mono` for a burst of commits, especially anything touching `base/` (one base/ change rolls EVERY tenant) or repeated "Automated image update" / "Trigger redeploy" commits. If the fleet is churning in lockstep across many tenants at once, it is almost certainly this — 25 independent clusters do not fail in synchrony. This was the entire cause on 2026-08-20 (20 commits in under 4 hours).
+    2. **A crash loop.** Query `max:kubernetes_state.container.restarts{kube_deployment:<name>}`. If the count is CLIMBING, containers are dying and being restarted in place — a real fault. If it is FLAT, pods are being replaced by a controller, not crashing, which points back to (1) or (3). This is a verified discriminator; it read delta 0 across every app deployment on 2026-08-20.
+    3. **A reloader/secret loop.** external-secrets refreshing a Secret on a loop with a reloader (Stakater / checksum annotation) restarting every workload that mounts it, even when the value did not change. This was the 2026-07-22 cause. Look for `ExternalSecret ... secret updated` events.
+    4. **HPA thrash.** Check `kubernetes_state.hpa.desired_replicas` for oscillation. A stable value pinned at the HPA minimum rules this out.
+
+    NOT USABLE for triage, despite seeming obvious: there is no per-deployment ReplicaSet count in this data — `kubernetes_state.replicaset.replicas_desired` carries no `kube_deployment` tag, so "count the ReplicaSets on the same image" returns no series. Verified 2026-08-20. Use `kubectl get rs -n <namespace> --sort-by=.metadata.creationTimestamp` from a shell instead.
+
+    THIS IS WORTH PAGING even when it turns out to be deploys: on 2026-08-20 `replicas_ready` on chat dipped to 1 of 8 during the churn, and deployment_unavailable did NOT fire because the dips averaged out over its 30m window. Rapid rollouts do degrade availability.
     ${var.notification_channel}
     {{/is_alert}}
     {{#is_warning}}
-    {{kube_deployment.name}} in {{kube_namespace.name}} pods are averaging under 2h old ({{value}}s) — elevated pod churn. Watch for escalation to a full restart storm.
+    Pods in ${var.tenant} are averaging under 2h old — elevated churn, below the paging threshold. Often the tail of a normal rollout. Handle-less by design.
     {{/is_warning}}
     {{#is_alert_recovery}}
-    Recovered: {{kube_deployment.name}} in {{kube_namespace.name}} pods are aging normally again — restart churn has stopped.
+    Recovered: pods in ${var.tenant} are aging normally again — the churn has stopped.
     ${var.notification_channel}
     {{/is_alert_recovery}}
 
-    Tenant: ${var.tenant} @ Query: kubernetes_state.pod.age by deployment
+    Tenant: ${var.tenant} @ Query: kubernetes_state.pod.age by cluster/namespace/deployment
   EOT
 
   # "less than" monitor on the MAX avg-age over the window: lower peak age = pods
@@ -327,9 +369,28 @@ resource "datadog_monitor" "pod_restart_storm" {
     warning_recovery  = local.pod_storm_warning_recovery_s
   }
 
-  # A genuine storm persists; re-page at most every 2h. Groups evaluate
-  # independently so one churning deployment doesn't mask another.
-  renotify_interval = 120
+  # ── FAN-OUT CONTROL (added 2026-08-20 after the 214-alert event) ───────────
+  # The query groups by cluster/namespace/deployment, which is right for precision
+  # — you want to know WHICH deployment is churning, and one bad deployment must
+  # not mask another. But it meant a fleet-wide cause produced 9 notifications per
+  # org x 23 orgs = 214 pages, re-firing every 2h.
+  #
+  # notify_by collapses NOTIFICATION to one per cluster while leaving group
+  # EVALUATION per-deployment: the monitor page still shows exactly which
+  # deployments are in Alert, but a whole-cluster churn event sends one page
+  # instead of nine. 214 -> 23. A whole-cluster event IS one incident.
+  #
+  # This is why the message says "open the monitor to see which deployments" and
+  # avoids {{kube_deployment.name}} in the body — with notifications aggregated
+  # above the deployment level, a per-deployment template would render only one
+  # arbitrary group's name and read as though that were the only one affected.
+  notify_by = ["kube_cluster_name"]
+
+  # Daily, not 2-hourly. A genuine churn condition persists until someone acts, so
+  # re-notifying 12x a day per cluster is noise without information — the same
+  # reasoning as cronjob_failing (PR #39) and the cert monitors. Combined with
+  # notify_by this turns ~214 pages/2h into ~23 pages/day.
+  renotify_interval = 1440
 
   # on_missing_data "default": a deployment that stops reporting age entirely is a
   # different signal (scaled to zero / deleted), not a restart storm — don't page.
