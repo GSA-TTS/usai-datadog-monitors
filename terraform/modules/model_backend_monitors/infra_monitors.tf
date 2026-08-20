@@ -204,18 +204,20 @@ resource "datadog_monitor" "deployment_unavailable" {
 
   message = <<-EOT
     {{#is_alert}}
-    Deployment {{kube_deployment.name}} in {{kube_namespace.name}} has been short of its desired replicas for 30+ minutes ({{value}} replica(s) not ready) — "does not have minimum availability".
+    One or more ${var.tenant} deployments have been short of their desired replicas for 30+ minutes — Kubernetes reports "does not have minimum availability". **Users are affected right now**: fewer replicas are serving than intended, so this is capacity loss, not a warning about future risk. **Open the monitor to see which deployments and namespaces are in Alert** — this notification is deduplicated to one per cluster, so the list is on the monitor page rather than in this email.
 
-    This is NOT a normal rolling update (those recover within the window). Likely causes:
+    This is NOT a normal rolling update; those recover well inside the 30m window. Likely causes:
     - A stuck/failed rollout (new pods not passing readiness)
-    - An orphaned or unmanaged deployment that can no longer schedule (e.g. missing secret, node pressure, superseded by a migration)
+    - An orphaned or unmanaged deployment that can no longer schedule (missing secret, node pressure, superseded by a migration)
     - Image pull / config error on the current tag
 
-    Check `kubectl get deploy -n {{kube_namespace.name}}` and the pod events. If the deployment is legacy/superseded, it should be removed rather than left half-running (see GSA-TTS/usai#896).
+    Triage: `kubectl get deploy -n <namespace>` plus the pod events for the deployments named on the monitor page. If a deployment is legacy/superseded it should be removed rather than left half-running (see GSA-TTS/usai#896, the incident this monitor was built for).
+
+    If this is firing across MANY tenants at once, suspect a fleet-wide rollout rather than 23 independent faults — check `mcaas-gsai/gsai-flux-mono` for a commit burst, especially anything touching `base/`, which every tenant inherits. Cross-check the pods-cycling monitor: sustained churn there plus unavailability here is a deploy storm degrading capacity.
     ${var.notification_channel}
     {{/is_alert}}
     {{#is_recovery}}
-    Recovered: {{kube_deployment.name}} in {{kube_namespace.name}} is back to full availability.
+    Recovered: ${var.tenant} deployments are back to full availability.
     ${var.notification_channel}
     {{/is_recovery}}
 
@@ -226,8 +228,29 @@ resource "datadog_monitor" "deployment_unavailable" {
     critical = 1
   }
 
-  # A genuinely stuck deployment persists; re-page at most every 2h rather than
-  # flapping. Groups evaluate independently so one bad deploy doesn't mask others.
+  # ── FAN-OUT CONTROL (added 2026-08-20, same treatment as pod_restart_storm) ─
+  # Grouping by cluster/namespace/deployment is right for precision — you need to
+  # know WHICH deployment is short, and one bad deployment must not mask another.
+  # But it means a fleet-wide cause sends one notification per deployment per org.
+  # The pods-cycling monitor did exactly that on 2026-08-20: 214 pages across 23
+  # orgs from a single Flux commit burst. This monitor has the identical shape and
+  # had simply not been hit by a fleet-wide availability event yet.
+  #
+  # notify_by aggregates NOTIFICATION to one per cluster while leaving group
+  # EVALUATION per-deployment: the monitor page still names every affected
+  # deployment, but a whole-cluster event pages once instead of nine times.
+  #
+  # This is why the body no longer uses {{kube_deployment.name}} /
+  # {{kube_namespace.name}} as its subject — aggregated above that level those
+  # templates render one arbitrary group and read as though it were the only
+  # deployment affected, which is worse than saying "check the monitor page".
+  notify_by = ["kube_cluster_name"]
+
+  # DELIBERATELY 2h, not the 1440 used by pod_restart_storm and the cert monitors.
+  # Those describe conditions that are bad but not actively costing capacity, so a
+  # daily nudge is enough. This one means replicas are missing RIGHT NOW and users
+  # are being served by a degraded deployment; a stuck rollout that nobody notices
+  # for a day is a real outage. Consistency is not a reason to slow this down.
   renotify_interval = 120
 
   # on_missing_data "default" = do nothing when the series stops reporting — a
