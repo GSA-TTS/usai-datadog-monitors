@@ -29,6 +29,7 @@ Only resources **not** already managed by FCS Terraform (tagged `MCaaS - Managed
 - Model-backend dashboard (Bedrock + Azure OpenAI triage view) — **rolled out per-tenant** to every enabled org
 - Infrastructure-health monitors (2 log alerts: istio mTLS cert-signing, dd-trace agent telemetry-send) — **rolled out per-tenant** to every enabled org
 - App Health / Edge / Datadog-usage dashboards — **rolled out per-tenant** to every enabled org
+- RUM application (1 browser app) — **rolled out per-tenant** to every enabled org (see below)
 - Keycloak monitors (5 log alerts) — **aigov-only**, managed by Terraform (see below)
 - Keycloak dashboard — **aigov-only**, managed by Terraform (see below)
 
@@ -80,6 +81,9 @@ tenant org**, each of which is a separate Datadog org under `ddog-gov.com`.
   profile) → Secrets Manager data sources for that org's DD api/app keys → a
   `datadog` provider alias → a module call. Providers can't use `for_each`, so each
   tenant is an explicit block.
+- `outputs.tf` — the `rum_credentials` map. Hand-maintained for the same reason
+  `tenants.tf` is: **onboarding a tenant means adding it here too**, or its RUM
+  credentials silently never surface.
 - `tenants.pending.md` — which tenants are enabled vs. blocked (and why).
 
 Keys are read **directly from AWS Secrets Manager at plan time** (secret
@@ -101,6 +105,24 @@ terraform init
 terraform plan
 terraform apply
 ```
+
+### Per-tenant RUM applications
+
+Each tenant gets one browser RUM application (`usai-<tenant>`) in its own Datadog
+org (`modules/model_backend_monitors/rum.tf`). The browser SDK needs two values
+that only exist after create, so they're exposed as a root output rather than
+copied out of the Datadog UI:
+
+```bash
+terraform output -json rum_credentials | jq '.gsa'
+# { "application_id": "...", "client_token": "..." }
+```
+
+`client_token` is a write-only ingest identifier that ships in the browser bundle
+by design — **not a secret**, which is why the output isn't marked `sensitive`
+(marking it would break the env-var sync above with a "sensitive value" error).
+The `application_id` / `client_token` pair is what each tenant's frontend env vars
+consume.
 
 ### aigov Keycloak monitors + dashboard
 
@@ -127,4 +149,5 @@ tag keys to `team`/`ai` and rejects `managed-by:terraform`/`service:keycloak`
 - AWS: `secretsmanager:GetSecretValue` on each tenant's `usai-<tenant>-shared-dd-*`
   secrets (granted via the `Environment=production` tag).
 - Datadog app key scopes: `monitors_read` / `monitors_write` (and
-  `dashboards_read` / `dashboards_write` for the aigov dashboard).
+  `dashboards_read` / `dashboards_write` for the aigov dashboard, plus
+  `rum_apps_read` / `rum_apps_write` for the per-tenant RUM applications).
