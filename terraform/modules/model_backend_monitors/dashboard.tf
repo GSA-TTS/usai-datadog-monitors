@@ -96,14 +96,47 @@ resource "datadog_dashboard" "model_backend" {
     }
   }
 
+  # ── FIXED 2026-09-01: BOTH AZURE WIDGETS RENDERED EMPTY ────────────────────
+  # They queried `service:api env:production "Too Many Requests"` and
+  # `... "Stream aborted mid-flight"`. Measured against the live gsa logs API:
+  # BOTH return ZERO events over 30 days, so both graphs had been blank.
+  #
+  # Two separate faults, found by probing rather than reasoning:
+  #
+  #   1. WRONG SERVICE SCOPE. Azure OpenAI work is split across TWO services now,
+  #      `api` and `api-beta`, and the throttle signal appears under BOTH —
+  #      measured over 14d in gsa: api=2801, api-beta=2609, and 5410 with
+  #      `service:(api OR api-beta)`. Neither service alone captures it, so the
+  #      OR form is not defensive padding, it is required for a correct count.
+  #
+  #   2. WRONG PHRASE. The log text is not "Too Many Requests" — that string
+  #      appears only in cloudtrail logs in these orgs. Azure's actual wording is
+  #      e.g. "Your requests to gpt-5.5 for gpt-5.5-latest-guardrails-defaultv2
+  #      in eastus2 have exceeded rate limit." So the match is "exceeded rate
+  #      limit". 4509 events in gsa over 7d — this has been happening constantly
+  #      with nothing displaying it.
+  #
+  # "Stream aborted mid-flight" is worse: that phrase returns 0 across ALL
+  # services and all of env:production over 30 days, and so do "stream aborted",
+  # "aborted mid-flight" and bare "abort". The signal the second widget was built
+  # for (the 2026-06-02 incident) no longer exists in the logs at all, so pointing
+  # it at a variant would just be a different empty graph. It is repurposed to the
+  # upstream-500 signal that DOES exist (78 events/7d in gsa, e.g. "500: Internal
+  # Server Error | headers: {...'Server': 'envoy'...}"), which is the closest real
+  # measure of Azure-side failures reaching users.
+  #
+  # NOTE the same two broken queries are still live in main.tf's two Azure
+  # monitors, where on_missing_data="default" has kept them permanently green
+  # while matching nothing. That is a silent-monitor bug, not a display bug, and it
+  # is deliberately NOT fixed in this PR — see the monitor-side note in main.tf.
   widget {
     timeseries_definition {
-      title = "Azure OpenAI - 'Too Many Requests' / 429 (api service, count)"
+      title = "Azure OpenAI - rate limited by Azure ('exceeded rate limit', api + api-beta)"
       request {
         display_type = "bars"
         log_query {
           index        = "*"
-          search_query = "service:api env:production \"Too Many Requests\""
+          search_query = "service:(api OR api-beta) env:production \"exceeded rate limit\""
           compute_query {
             aggregation = "count"
           }
@@ -114,12 +147,12 @@ resource "datadog_dashboard" "model_backend" {
 
   widget {
     timeseries_definition {
-      title = "Azure OpenAI - Streams aborted mid-flight (api service, count)"
+      title = "Azure OpenAI - upstream 500s reaching the app (api + api-beta)"
       request {
         display_type = "bars"
         log_query {
           index        = "*"
-          search_query = "service:api env:production \"Stream aborted mid-flight\""
+          search_query = "service:(api OR api-beta) env:production \"Internal Server Error\""
           compute_query {
             aggregation = "count"
           }

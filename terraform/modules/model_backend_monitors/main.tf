@@ -157,6 +157,45 @@ resource "datadog_monitor" "bedrock_server_errors" {
 # ---------------------------------------------------------------------------
 # Azure OpenAI (log alerts on service:api — signal lives only in app logs)
 # ---------------------------------------------------------------------------
+# ⚠️ BOTH MONITORS BELOW ARE CURRENTLY BLIND — KNOWN BUG, FIX PENDING A DECISION
+# Found 2026-09-01 while investigating why the dashboard's two Azure widgets were
+# rendering empty (fixed in dashboard.tf). The widgets and these monitors share the
+# same two queries, and both queries match NOTHING:
+#
+#   service:api env:production "Too Many Requests"          -> 0 events / 30d
+#   service:api env:production "Stream aborted mid-flight"  -> 0 events / 30d
+#
+# Because these are log alerts with on_missing_data = "default" (no data =>
+# not breaching), they have been sitting in OK the whole time. Green, and watching
+# nothing. This is exactly the silent-monitor trap cert_monitors.tf documents for
+# `synthetics.ssl.days_left`: a monitor that LOOKS like it works is worse than an
+# acknowledged gap. Azure HAS been throttling throughout — 4509 events in gsa over
+# 7 days — and neither of these fired once.
+#
+# Two faults, same as the widgets: the service scope is wrong (the signal is split
+# across `api` AND `api-beta`; 14d in gsa = api 2801 + api-beta 2609) and the phrase
+# is wrong (Azure logs "...have exceeded rate limit", not "Too Many Requests",
+# which in these orgs only appears in cloudtrail). "Stream aborted mid-flight" has
+# no live equivalent at all.
+#
+# WHY THE QUERY IS NOT SIMPLY FIXED HERE: correcting it while keeping `> 3 in 5m`
+# would page roughly 19x/day per org — ~480/day across 25 orgs. Measured 5m-bucket
+# distribution in gsa over 7d: throttling present in 12.1% of windows, median 4,
+# p95 76, p99 206, max 240. Throttling is a NORMAL operating condition here, not an
+# incident.
+#
+# Worse, a count threshold cannot work fleet-wide: 7d totals are gsa 4509, doc 323,
+# ftc 15, dot 5, hud 0 — a ~900x spread. A threshold quiet enough for gsa would
+# never fire for dot even during a total outage, and one tuned for dot would page
+# gsa continuously. That is precisely the case the CLAUDE.md convention
+# ("prefer RATES over absolute counts across tenants with different traffic")
+# exists for, and the shape that caused the ~200-alert flood in PR #42.
+#
+# So the fix needs a threshold DESIGN decision (ratio vs sustained-duration vs
+# per-tenant variable), not just a string edit. Documented here rather than
+# silently half-fixed. Until then these two monitors provide NO coverage — treat
+# Azure throttling as unmonitored and use the dashboard widgets.
+# ---------------------------------------------------------------------------
 
 resource "datadog_monitor" "azure_openai_throttling" {
   name = "[${var.tenant}] Azure OpenAI - Too Many Requests / 429 throttling (api service)"
