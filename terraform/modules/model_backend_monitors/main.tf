@@ -178,52 +178,80 @@ resource "datadog_monitor" "bedrock_server_errors" {
 # which in these orgs only appears in cloudtrail). "Stream aborted mid-flight" has
 # no live equivalent at all.
 #
-# WHY THE QUERY IS NOT SIMPLY FIXED HERE: correcting it while keeping `> 3 in 5m`
-# would page roughly 19x/day per org — ~480/day across 25 orgs. Measured 5m-bucket
-# distribution in gsa over 7d: throttling present in 12.1% of windows, median 4,
-# p95 76, p99 206, max 240. Throttling is a NORMAL operating condition here, not an
-# incident.
+# BOTH QUERIES ARE NOW FIXED. The two monitors took different treatments because
+# their signals behave completely differently — see each resource below:
 #
-# Worse, a count threshold cannot work fleet-wide: 7d totals are gsa 4509, doc 323,
-# ftc 15, dot 5, hud 0 — a ~900x spread. A threshold quiet enough for gsa would
-# never fire for dot even during a total outage, and one tuned for dot would page
-# gsa continuously. That is precisely the case the CLAUDE.md convention
-# ("prefer RATES over absolute counts across tenants with different traffic")
-# exists for, and the shape that caused the ~200-alert flood in PR #42.
+#   * azure_openai_throttling  — query fixed, but DELIBERATELY HANDLE-LESS for now.
+#     Correcting the query while keeping `> 3 in 5m` AND a Slack handle would page
+#     ~19x/day per org, ~480/day across 25 orgs. Measured 5m distribution in gsa
+#     over 7d: throttling present in 12.1% of windows, median 4, p95 76, p99 206,
+#     max 240 — a NORMAL operating condition, not an incident. And no count
+#     threshold works fleet-wide: 7d totals gsa 4509, doc 323, ftc 15, dot 5,
+#     hud 0 (~900x spread), so quiet-for-gsa is blind-for-dot. That is the
+#     CLAUDE.md rates-over-counts case and the PR #42 flood shape. The threshold
+#     redesign (ratio vs sustained-duration vs per-tenant variable) is still an
+#     open decision, so the monitor evaluates and displays truth without paging.
 #
-# So the fix needs a threshold DESIGN decision (ratio vs sustained-duration vs
-# per-tenant variable), not just a string edit. Documented here rather than
-# silently half-fixed. Until then these two monitors provide NO coverage — treat
-# Azure throttling as unmonitored and use the dashboard widgets.
+#   * azure_openai_stream_aborted — repointed to the upstream-500 signal, and it
+#     KEEPS its handle, because that signal is low-volume and its existing
+#     threshold measured out safe (see the resource for the numbers).
 # ---------------------------------------------------------------------------
 
 resource "datadog_monitor" "azure_openai_throttling" {
-  name = "[${var.tenant}] Azure OpenAI - Too Many Requests / 429 throttling (api service)"
+  name = "[${var.tenant}] Azure OpenAI - rate limited by Azure (no page - threshold un-tuned)"
   type = "log alert"
-  # Count of "Too Many Requests" log lines from the api service over 5m.
-  # During the 2026-06-02 incident the peak was ~9 in 19 min (~2-3 per 5m),
-  # so >3 critical fires at the start of the peak cluster; >1 warning catches
-  # the early signal (the first 429 hit at 15:38, ~30 min before the peak).
-  query = "logs(\"service:api env:production \\\"Too Many Requests\\\"\").index(\"*\").rollup(\"count\").last(\"5m\") > 3"
 
+  # Query fixed 2026-09-01. Was `service:api env:production "Too Many Requests"`,
+  # which matched ZERO events over 30 days on two counts: the signal is split
+  # across `api` AND `api-beta` (14d in gsa: 2801 + 2609), and Azure's wording is
+  # "...have exceeded rate limit" — "Too Many Requests" appears only in cloudtrail
+  # logs here, which is why a bare search for it looked like it matched something.
+  query = "logs(\"service:(api OR api-beta) env:production \\\"exceeded rate limit\\\"\").index(\"*\").rollup(\"count\").last(\"5m\") > 3"
+
+  # ── DELIBERATELY HANDLE-LESS: DO NOT ADD THE HANDLE BACK WITHOUT RETUNING ──
+  # `critical = 3 / warning = 1` was calibrated in 2026-06 against a query that
+  # matched nothing, so it has never been tested against real data. Now that the
+  # query works, the measured 5m distribution in gsa (7d) is: throttling present in
+  # 12.1% of windows, median 4, p95 76, p99 206, max 240 — so `> 3` is breached
+  # ~19x/day in gsa alone, and Azure rate-limiting is a normal operating condition
+  # here rather than an incident.
+  #
+  # A count threshold also cannot be made to work fleet-wide: 7d totals are gsa
+  # 4509, doc 323, ftc 15, dot 5, hud 0 — a ~900x spread — so any value quiet
+  # enough for gsa is blind for dot even during a total outage. Retuning needs a
+  # DESIGN choice (ratio against total request volume / sustained-duration /
+  # per-tenant variable), which is an open decision.
+  #
+  # Until then this monitor evaluates and shows the truth on its own page and on the
+  # Model Backend dashboard, but sends NOTHING. That is a deliberate, documented
+  # trade-off and strictly better than the previous state, where it sat green while
+  # matching nothing at all (the silent-monitor trap).
+  #
+  # HONEST CAVEAT, learned from PR #48: handle-less monitors get ignored. The
+  # 45-day cert tier was handle-less on the same "it's a ticket, not a page"
+  # reasoning and ed/gsa still reached 18 days to expiry unseen. So treat this as a
+  # short-lived interim, not a resting state — the thresholds still need doing.
   message = <<-EOT
     {{#is_alert}}
-    The USAi api service is logging "Too Many Requests" (HTTP 429) — more than 3 in the last 5 minutes. This is the signature of the 2026-06-02 incident: Azure OpenAI (GPT models) is rate-limiting us and chat streams are being aborted mid-flight.
+    Azure OpenAI is rate-limiting ${var.tenant} — more than 3 "exceeded rate limit" log lines in the last 5 minutes across the `api` / `api-beta` services.
 
-    This is distinct from AWS Bedrock — Bedrock throttling/latency has its own monitors. Check: Azure OpenAI quota/TPM usage for this deployment, any single high-volume caller (e.g. API clients hammering /api/v1/chat/completions), and whether to request an Azure quota increase or shed load.
-    ${var.notification_channel}
+    **This monitor does not page, and its threshold is NOT calibrated.** Rate limiting is a routine condition here (measured: present in ~12% of 5-minute windows in the busiest org, bursting to 240 events), so a breach of this threshold is not by itself an incident. Use it as a visible signal, not a call to action, until the threshold is redesigned.
+
+    If you are investigating a real user-facing problem, correlate: the upstream-500 monitor (Azure failures actually reaching users), Azure OpenAI quota/TPM usage for this deployment, and whether one high-volume caller is hammering /api/v1/chat/completions. Bedrock has its own separate monitors — this is Azure only.
     {{/is_alert}}
     {{#is_warning}}
-    The USAi api service has logged at least one "Too Many Requests" (429) in the last 5 minutes. Azure OpenAI may be starting to throttle — watch for escalation. (No page — visible on the App Health dashboard.)
+    At least one Azure "exceeded rate limit" in the last 5 minutes. Routine; informational only.
     {{/is_warning}}
-    {{#is_alert_recovery}}
-    Recovered: api service 429 "Too Many Requests" rate back to normal.
-    ${var.notification_channel}
-    {{/is_alert_recovery}}
+    {{#is_recovery}}
+    Recovered: Azure rate-limiting for ${var.tenant} back below threshold.
+    {{/is_recovery}}
 
-    Tenant: ${var.tenant} @ Query: service:api "Too Many Requests"
+    Tenant: ${var.tenant} @ Query: service:(api OR api-beta) "exceeded rate limit"
   EOT
 
+  # Unchanged and knowingly un-tuned — see the note above. Left at the original
+  # values rather than invented anew, so the retune starts from a clean baseline
+  # instead of a number that looks calibrated but isn't.
   monitor_thresholds {
     critical = 3
     warning  = 1
@@ -238,28 +266,54 @@ resource "datadog_monitor" "azure_openai_throttling" {
 }
 
 resource "datadog_monitor" "azure_openai_stream_aborted" {
-  name = "[${var.tenant}] Azure OpenAI - Chat streams aborted mid-flight"
+  name = "[${var.tenant}] Azure OpenAI - upstream 500s reaching the app"
   type = "log alert"
-  # The user-visible symptom: a streaming GPT response cut off partway. In the
-  # incident these accompanied the 429s ("Stream aborted mid-flight for model").
-  # Separate from the 429 count so we catch aborts even if their root cause
-  # shifts (timeout, upstream reset) rather than only rate-limiting.
-  query = "logs(\"service:api env:production \\\"Stream aborted mid-flight\\\"\").index(\"*\").rollup(\"count\").last(\"5m\") > 3"
 
+  # REPOINTED 2026-09-01. This monitor used to look for "Stream aborted mid-flight"
+  # on service:api — the user-visible symptom from the 2026-06-02 incident. That
+  # phrase no longer exists anywhere: 0 events over 30 days across ALL services and
+  # all of env:production, and the same for "stream aborted", "aborted mid-flight"
+  # and bare "abort". Whatever emitted it was removed or reworded, so the monitor
+  # had been permanently green with nothing to match (on_missing_data="default").
+  #
+  # Rather than leave a placeholder implying coverage, it now watches the closest
+  # real signal for the same question — "are Azure-side failures reaching users?" —
+  # which is upstream 500s relayed to the app, e.g.
+  #   500: Internal Server Error | headers: {...'Server': 'envoy'...}
+  #
+  # The `api OR api-beta` scope is required for the same reason as the throttling
+  # monitor: the work is split across both services.
+  query = "logs(\"service:(api OR api-beta) env:production \\\"Internal Server Error\\\"\").index(\"*\").rollup(\"count\").last(\"5m\") > 3"
+
+  # ── THIS ONE KEEPS ITS HANDLE: the threshold measured out safe ──────────────
+  # Unlike the throttling monitor, this signal is low-volume and well-behaved, so
+  # the inherited `> 3 in 5m` is genuinely calibrated rather than inherited-on-faith.
+  # Measured over 7d in 5m buckets:
+  #   gsa   80 events, non-zero in 48/2016 windows, max 6,  p95 3  -> `>3` fires 2x/7d
+  #   usda  16 events, max 4                                       -> `>3` fires 1x/7d
+  #   hud    1 event                                               -> never
+  #   doc / ftc / dot  zero                                        -> never
+  # So ~0.3 pages/day in the busiest org and none in most — a real, actionable rate.
+  # There is also no 900x cross-tenant spread here (unlike throttling), so a count
+  # threshold is legitimate for this signal.
   message = <<-EOT
     {{#is_alert}}
-    The USAi api service has aborted more than 3 model response streams mid-flight in the last 5 minutes. Users are seeing chat responses cut off partway. In the 2026-06-02 incident this was driven by Azure OpenAI 429s (see the throttling monitor) — correlate the two. If 429s are NOT also firing, suspect upstream timeouts or connection resets instead.
+    More than 3 upstream 500s have reached the ${var.tenant} app in the last 5 minutes (`api` / `api-beta`). Users are seeing failed requests — this is the Azure-side failure signal that actually surfaces to them.
+
+    Triage: check the Azure-rate-limited monitor and the Model Backend dashboard — sustained throttling often precedes 500s, though rate limiting alone is routine here and does not imply this. Then check Azure OpenAI deployment health/quota for this tenant. Bedrock has separate monitors; this is Azure only.
+
+    NOTE this monitor previously watched for "Stream aborted mid-flight", which no longer exists in the logs at all (0 events / 30d, all services). If you are looking for the classic mid-stream cutoff symptom, it is no longer directly instrumented — this 500 count is the nearest available proxy.
     ${var.notification_channel}
     {{/is_alert}}
     {{#is_warning}}
-    At least one model response stream was aborted mid-flight in the last 5 minutes. Watch for escalation. (No page — visible on the App Health dashboard.)
+    At least one upstream 500 reached the app in the last 5 minutes. Below the paging threshold — handle-less by design.
     {{/is_warning}}
     {{#is_alert_recovery}}
-    Recovered: api service stream-abort rate back to normal.
+    Recovered: upstream 500s to the ${var.tenant} app back below threshold.
     ${var.notification_channel}
     {{/is_alert_recovery}}
 
-    Tenant: ${var.tenant} @ Query: service:api "Stream aborted mid-flight"
+    Tenant: ${var.tenant} @ Query: service:(api OR api-beta) "Internal Server Error"
   EOT
 
   monitor_thresholds {
