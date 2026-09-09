@@ -11,13 +11,16 @@
 #                         hand-built UI tests that broke in the 2026-08 rename
 #                         (see the rename section below). It is apex-only —
 #                         /healthz is not a valid path on console or api.
-#   1. ssl_cert_<host>  — SSL synthetic: cert present, chain trusted, not
-#                         self-signed, AND more than cert_expiry_crit_days (14)
-#                         to expiry. Datadog's documented SSL failure codes cover
-#                         expired / untrusted / self-signed / revoked; SAN-
-#                         hostname verification is NOT documented, so the
-#                         wrong-hostname case is covered by check 2 rather than
-#                         claimed here.
+#   1. ssl_cert_<host>  — SSL synthetic: cert present, chain trusted AND
+#                         COMPLETE (server actually sends its intermediates),
+#                         not self-signed, AND more than cert_expiry_crit_days
+#                         (14) to expiry. Datadog's documented SSL failure codes
+#                         cover expired / untrusted / self-signed / revoked;
+#                         chain completeness requires opting out of AIA fetching
+#                         (disable_aia_intermediate_fetching, added 2026-09-09 —
+#                         see the comment on that argument); SAN-hostname
+#                         verification is NOT documented, so the wrong-hostname
+#                         case is covered by check 2 rather than claimed here.
 #   2. https_reach_<host> — HTTP synthetic: GET follows redirects and asserts a
 #                         final 200 over valid TLS. Catches the cert error
 #                         indirectly PLUS the network/allowlist drop the EEOC
@@ -316,8 +319,9 @@ resource "datadog_synthetics_test" "ssl_cert" {
   # isInMoreThan asserts days-remaining > target. A missing / expired / untrusted
   # / self-signed cert fails the run at connection time (CERT_HAS_EXPIRED,
   # CERT_UNTRUSTED, INVALID_CA, DEPTH_ZERO_SELF_SIGNED_CERT) before assertions
-  # are evaluated, so those cases are caught regardless. Hostname/SAN mismatch is
-  # covered by the HTTP check (see file header).
+  # are evaluated, so those cases are caught regardless. An INCOMPLETE chain is
+  # caught only because of disable_aia_intermediate_fetching below — see that
+  # comment. Hostname/SAN mismatch is covered by the HTTP check (see file header).
   assertion {
     type     = "certificate"
     operator = "isInMoreThan"
@@ -325,8 +329,25 @@ resource "datadog_synthetics_test" "ssl_cert" {
   }
 
   options_list {
-    tick_every           = local.edge_synthetic_tick_s
-    accept_self_signed   = false
+    tick_every         = local.edge_synthetic_tick_s
+    accept_self_signed = false
+
+    # Fail on an incomplete chain instead of silently repairing it. Datadog
+    # fetches missing intermediates via the leaf's AIA extension BY DEFAULT, so
+    # without this a server that sends only its leaf passes every check above:
+    # Datadog completes the chain itself, exactly like a browser does.
+    #
+    # That is not hypothetical. On 2026-09-09 auth.usai.gov was found serving
+    # ONLY the CN=usai.gov leaf (SSL Labs: "chain is incomplete ... Certificates
+    # provided: 1"), because the ACM cert on the ALB is an IMPORTED cert served
+    # without its Amazon RSA 2048 M04 intermediate. Browsers were unaffected;
+    # Okta's Java SCIM connector could not build a path and failed FAA's
+    # provisioning setup with `PKIX path building failed`. Java, Go, Node and
+    # OpenSSL do not do AIA fetching — a leaf-only chain breaks all of them.
+    #
+    # See usai-main/docs/RCA_AUTH_USAI_GOV_INCOMPLETE_TLS_CHAIN.md.
+    disable_aia_intermediate_fetching = true
+
     min_failure_duration = local.edge_synthetic_min_failure_s
     min_location_failed  = 1
     retry {
