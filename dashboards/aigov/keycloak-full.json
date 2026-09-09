@@ -1286,6 +1286,551 @@
         "width": 12,
         "height": 4
       }
+    },
+    {
+      "id": 101,
+      "definition": {
+        "type": "note",
+        "content": "## SCIM Provisioning (IdP \u2192 Keycloak)\nUser provisioning from each tenant's IdP (Entra ID / Okta) into its Keycloak realm. **A 401 means the IdP's token was rejected \u2014 no users sync.**\n\n**Read these widgets differently from the rest of this dashboard:**\n- They query **istio-ingressgateway access logs**, not `service:keycloak` events. The realm and HTTP status live in raw log text, not in parsed attributes.\n- **The `$realm`, `$event_type` and `$environment` pickers do NOT apply here** and must not be added. They resolve to `@realmName` / `@type` / `env`, none of which exist on these logs \u2014 adding any of them returns zero and silently blanks the section (verified 2026-09-09).\n- These logs are level **`info`**, not `error`, so no error-severity filter or monitor surfaces them. That is why the 2026-08-25 breakage went unnoticed for two weeks.\n- `-curl` excludes manual `curl` testing so the counts reflect **real IdP traffic only**. Drop it to see hand-run probes.\n\n**If 401s are non-zero:** the IdP is almost certainly configured with a static *Bearer Token*, which Keycloak issues with a 60-minute lifespan and the IdP cannot refresh. Switch the IdP to **OAuth2 Client Credentials Grant** against `https://auth.usai.gov/realms/<realm>/protocol/openid-connect/token` with client `scim-client`, and leave the **Scope field empty** \u2014 Keycloak rejects `read write` with `invalid_scope`.",
+        "background_color": "yellow",
+        "font_size": "14",
+        "text_align": "left",
+        "vertical_align": "top",
+        "show_tick": false,
+        "tick_pos": "50%",
+        "tick_edge": "left",
+        "has_padding": true
+      },
+      "layout": {
+        "x": 0,
+        "y": 36,
+        "width": 12,
+        "height": 4
+      }
+    },
+    {
+      "id": 102,
+      "definition": {
+        "title": "SCIM 401s \u2014 real IdP traffic (token rejected)",
+        "type": "query_value",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"scim/v2\" 401 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": true,
+        "precision": 0
+      },
+      "layout": {
+        "x": 0,
+        "y": 40,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "id": 103,
+      "definition": {
+        "title": "SCIM successes \u2014 real IdP traffic",
+        "type": "query_value",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"scim/v2\" 200 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": true,
+        "precision": 0
+      },
+      "layout": {
+        "x": 4,
+        "y": 40,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "id": 104,
+      "definition": {
+        "title": "SCIM requests \u2014 all sources incl. manual curl",
+        "type": "query_value",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"scim/v2\""
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "scalar"
+          }
+        ],
+        "autoscale": true,
+        "precision": 0
+      },
+      "layout": {
+        "x": 8,
+        "y": 40,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "id": 105,
+      "definition": {
+        "title": "SCIM requests by status (real IdP traffic)",
+        "show_legend": true,
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "alias": "401 Unauthorized",
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"scim/v2\" 401 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "warm",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          },
+          {
+            "formulas": [
+              {
+                "alias": "200 OK",
+                "formula": "query2"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query2",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"scim/v2\" 200 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "green",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 42,
+        "width": 12,
+        "height": 3
+      }
+    },
+    {
+      "id": 106,
+      "definition": {
+        "title": "SCIM 401s by realm \u2014 which tenants cannot provision",
+        "show_legend": true,
+        "type": "timeseries",
+        "requests": [
+          {
+            "formulas": [
+              {
+                "alias": "ed",
+                "formula": "query1"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query1",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"/realms/ed/scim/v2\" 401 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "warm",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          },
+          {
+            "formulas": [
+              {
+                "alias": "ntsb",
+                "formula": "query2"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query2",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"/realms/ntsb/scim/v2\" 401 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "warm",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          },
+          {
+            "formulas": [
+              {
+                "alias": "faa",
+                "formula": "query3"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query3",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"/realms/faa/scim/v2\" 401 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "warm",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          },
+          {
+            "formulas": [
+              {
+                "alias": "doj",
+                "formula": "query4"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query4",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"/realms/doj/scim/v2\" 401 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "warm",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          },
+          {
+            "formulas": [
+              {
+                "alias": "ncua",
+                "formula": "query5"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query5",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"/realms/ncua/scim/v2\" 401 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "warm",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          },
+          {
+            "formulas": [
+              {
+                "alias": "doc",
+                "formula": "query6"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query6",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"/realms/doc/scim/v2\" 401 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "warm",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          },
+          {
+            "formulas": [
+              {
+                "alias": "sss",
+                "formula": "query7"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query7",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"/realms/sss/scim/v2\" 401 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "warm",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          },
+          {
+            "formulas": [
+              {
+                "alias": "opm",
+                "formula": "query8"
+              }
+            ],
+            "queries": [
+              {
+                "name": "query8",
+                "data_source": "logs",
+                "search": {
+                  "query": "\"/realms/opm/scim/v2\" 401 -curl"
+                },
+                "indexes": [
+                  "*"
+                ],
+                "group_by": [],
+                "compute": {
+                  "aggregation": "count"
+                },
+                "storage": "hot"
+              }
+            ],
+            "response_format": "timeseries",
+            "style": {
+              "palette": "warm",
+              "line_type": "solid",
+              "line_width": "normal"
+            },
+            "display_type": "bars"
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 45,
+        "width": 12,
+        "height": 3
+      }
+    },
+    {
+      "id": 107,
+      "definition": {
+        "title": "Recent SCIM requests (raw \u2014 status and realm are in the message text)",
+        "type": "list_stream",
+        "requests": [
+          {
+            "response_format": "event_list",
+            "query": {
+              "data_source": "logs_stream",
+              "query_string": "\"scim/v2\"",
+              "indexes": [],
+              "storage": "hot",
+              "sort": {
+                "order": "desc",
+                "column": "timestamp"
+              }
+            },
+            "columns": [
+              {
+                "field": "status_line",
+                "width": "auto"
+              },
+              {
+                "field": "timestamp",
+                "width": "auto"
+              },
+              {
+                "field": "service",
+                "width": "auto"
+              },
+              {
+                "field": "content",
+                "width": "compact"
+              }
+            ]
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 48,
+        "width": 12,
+        "height": 4
+      }
     }
   ],
   "template_variables": [
