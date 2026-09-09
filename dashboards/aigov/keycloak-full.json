@@ -2,6 +2,7 @@
   "title": "Keycloak",
   "description": "Comprehensive Keycloak authentication dashboard",
   "layout_type": "ordered",
+  "notify_list": null,
   "widgets": [
     {
       "id": 1,

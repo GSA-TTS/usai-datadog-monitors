@@ -259,3 +259,141 @@ resource "datadog_monitor" "keycloak_top_failing_clients_spike" {
     ignore_changes = [assets]
   }
 }
+
+# ---------------------------------------------------------------------------
+# SCIM provisioning failure (aigov — the shared Keycloak all tenants sync into)
+# ---------------------------------------------------------------------------
+# Added 2026-09-09 after ED reported users could not access USAi. Every
+# GET /realms/ed/scim/v2/Users from Entra was returning 401, and it had been doing
+# so since 2026-08-25 with NOTHING alerting. Keycloak was healthy the whole time: a
+# freshly minted client-credentials token returns 200 and a valid SCIM ListResponse.
+# The failure was a stale IdP credential and it was invisible for two weeks.
+#
+# WHY NOTHING CAUGHT IT: these are istio-ingressgateway ACCESS logs, not
+# service:keycloak events. They carry no parsed attributes (@http.status_code
+# returns nothing) and — critically — their level is `info`, not `error`, so no
+# error-severity filter or existing monitor could ever have surfaced them.
+#
+# ── THRESHOLD IS `> 0`, WHICH IS DELIBERATE AND MEASURED ────────────────────
+# This breaks the repo's usual prefer-rates-over-counts rule, on purpose. A
+# correctly configured IdP NEVER receives a 401 here, so zero is the only correct
+# steady state and there is no baseline to express as a rate.
+#
+# It is also what the data requires. 401s per HOUR over 30 days, real IdP traffic:
+#   only 12 non-empty hours out of 720, distributed
+#   {1 -> 6 hours, 2 -> 3 hours, 3 -> 1, 7 -> 1, 20 -> 1}
+# So the majority of broken hours contain just ONE or TWO 401s. A `> 2 in 1h` rule
+# would have fired in 3 of those 12 hours and missed 75% of the outage. Anything
+# above zero is too high for a signal this sparse.
+#
+# Volume makes `> 0` safe rather than noisy: 42 real-IdP 401s in 30 days total, so
+# this physically cannot flood — the opposite failure mode from PR #42's ~200-alert
+# count monitor.
+#
+# ── WINDOW IS 1d, NOT 1h, TO STOP FLAPPING ─────────────────────────────────
+# IdP retries are sparse and irregular (ED: 14:46, 14:51, 15:00, 15:14, 15:34,
+# 16:54 — then nothing for hours). With a 1h window the monitor would recover
+# between retries and re-alert on the next one, and each fresh Alert transition
+# pages regardless of renotify_interval. A 1d window holds one Alert across the
+# whole broken day. The cost is that recovery lags up to 24h after a real fix —
+# acceptable, because you verify a provisioning fix from the IdP's Test Connection
+# and the dashboard, not by waiting for this monitor to clear.
+#
+# ── NO PER-REALM MONITOR, AND NO "SCIM WENT QUIET" MONITOR ─────────────────
+# Per-realm is not expressible: the realm lives in raw URL text with no facet, so
+# grouping is impossible and the alternative is 8 hardcoded monitors — fan-out for
+# no gain, and this session already paid for that twice (#49, #50). The message
+# points at the dashboard's per-realm widget instead, which is one click.
+#
+# A "SCIM has stopped being called" monitor was considered and rejected: traffic is
+# genuinely intermittent (12 active hours in 30 days), so absence of requests is
+# normal and such a monitor would false-page continuously.
+# ── ONE MONITOR PER REALM, so the alert names the tenant ────────────────────
+# Originally a single aggregate monitor. Changed 2026-09-09 because the resulting
+# page read "SCIM provisioning failing — IdP token rejected (401)" with no
+# indication of WHICH tenant, which makes it near-useless to whoever is on call:
+# every SCIM realm belongs to a different agency whose IdP admins have to make the
+# fix, so the tenant is the single most important field in the alert.
+#
+# WHY for_each RATHER THAN group_by: the realm lives in raw URL text in an
+# istio-ingressgateway access log. There is no facet for it — group_by on @realm,
+# @http.url_details.path and @http.status_code all return nothing (verified
+# 2026-09-09), so a multi-alert monitor cannot be built. Only `host`, `service` and
+# `kube_namespace` are groupable and all three are uniform across these logs.
+#
+# The fan-out is acceptable here, unlike #49/#50: 8 monitors on a signal totalling
+# 42 real-IdP 401s in 30 days, each re-notifying daily. A fleet-wide SCIM break
+# pages 8 times, which is arguably correct since 8 different IdP owners must act.
+# It also buys per-tenant muting and routing, which an aggregate monitor cannot do.
+#
+# BETTER LONG-TERM FIX, deliberately not done here: add a log pipeline that Groks
+# these access logs into real `realm` and `status_code` attributes. That would
+# collapse this back to ONE multi-alert monitor with {{realm.name}} in the message,
+# and would also replace the fragile `401` TEXT match with @status_code:401. It is
+# not done in this change because a Grok parser cannot be verified before shipping
+# without a pipeline test API, and an incorrect one silently stops parsing. The org
+# already runs 6 pipelines (including two for Keycloak) so the pattern exists.
+locals {
+  # Realms with a scim-client in Keycloak, verified against the admin API
+  # 2026-09-09. doc/sss/ncua have never sent a SCIM request; their monitors sit in
+  # OK via on_missing_data and cost nothing, but mean a newly-wired IdP is covered
+  # from its first request rather than after the next outage.
+  scim_realms = ["ed", "ntsb", "faa", "doj", "ncua", "doc", "sss", "opm"]
+}
+
+resource "datadog_monitor" "scim_provisioning_failing" {
+  for_each = toset(local.scim_realms)
+
+  provider = datadog.aigov
+  name     = "SCIM provisioning failing — ${each.value} — IdP token rejected (401)"
+  type     = "log alert"
+
+  # `-curl` excludes hand-run probing so this reflects real IdP traffic only. It is
+  # load-bearing, not tidiness: without it the same data reads 401:54 / 200:20 and
+  # looks partly healthy, when every one of those 200s is manual curl (setup testing
+  # on 08-25 plus this investigation). Real-IdP successes over 30 days: zero.
+  query = "logs(\"\\\"/realms/${each.value}/scim/v2\\\" 401 -curl\").index(\"*\").rollup(\"count\").last(\"1d\") > 0"
+
+  message = <<-EOT
+    {{#is_alert}}
+    SCIM user provisioning for **${each.value}** is being REJECTED by the shared Keycloak — {{value}} request(s) returned 401 in the last 24h. **${each.value} cannot provision or deprovision users**, so new staff get no access and departed staff keep theirs.
+
+    **Almost always the same cause:** ${each.value}'s IdP is configured with a static *Bearer Token*. Keycloak issues those with a 60-minute lifespan and the IdP cannot refresh one, so provisioning works for an hour after setup and then 401s forever. Confirm by minting a token by hand — if a fresh token gets 200 on `/realms/${each.value}/scim/v2/Users`, the server is fine and the IdP credential is the problem.
+
+    **Fix:** switch ${each.value}'s IdP to **OAuth2 Client Credentials Grant** against `https://auth.usai.gov/realms/${each.value}/protocol/openid-connect/token`, client `scim-client`, and leave the **Scope field EMPTY** — Keycloak rejects `read write` with `invalid_scope` (that value is Contrast-specific; those scopes do not exist in these realms).
+
+    Entra and Okta both re-mint their own tokens under this grant, so `access_token_lifespan = 3600` is correct and should NOT be widened. Note tenants differ: faa is on Okta, ed on Entra.
+    ${var.notification_channel}
+    {{/is_alert}}
+    {{#is_alert_recovery}}
+    Recovered: no SCIM 401s for ${each.value} in the last 24h. Confirm provisioning actually resumed — check for 200s on the Keycloak dashboard's SCIM section, since silence alone also produces this recovery.
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
+
+    Realm: ${each.value} @ Query: "/realms/${each.value}/scim/v2" 401, excluding manual curl
+  EOT
+
+  # `> 0` means critical must be 0 to match the query threshold.
+  monitor_thresholds {
+    critical = 0
+  }
+
+  # A rejected IdP credential stays rejected until someone reconfigures the IdP, so
+  # re-page daily rather than once — the same reasoning as the cert monitors. Paired
+  # with the 1d window this is at most one page per day per affected tenant.
+  renotify_interval = 1440
+
+  # No data means no SCIM requests were made at all, which is NORMAL here — traffic
+  # is intermittent (12 active hours in 30 days). Must not be treated as breaching.
+  on_missing_data        = "default"
+  include_tags           = false
+  notify_audit           = false
+  groupby_simple_monitor = false
+
+  tags = ["managed-by:terraform", "service:keycloak", "tenant:aigov", "signal:scim-provisioning", "scim-realm:${each.value}"]
+
+  # Same reason as the Keycloak monitors above — never clobber UI-attached runbooks.
+  lifecycle {
+    ignore_changes = [assets]
+  }
+}
