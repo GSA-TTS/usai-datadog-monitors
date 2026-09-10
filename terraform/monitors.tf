@@ -351,12 +351,57 @@ resource "datadog_monitor" "scim_provisioning_failing" {
   # `-curl` excludes hand-run probing so this reflects real IdP traffic only. It is
   # load-bearing, not tidiness: without it the same data reads 401:54 / 200:20 and
   # looks partly healthy, when every one of those 200s is manual curl (setup testing
-  # on 08-25 plus this investigation). Real-IdP successes over 30 days: zero.
-  query = "logs(\"\\\"/realms/${each.value}/scim/v2\\\" 401 -curl\").index(\"*\").rollup(\"count\").last(\"1d\") > 0"
+  # on 08-25 plus this investigation).
+  #
+  # RATE, NOT COUNT — and the reason is specific, not stylistic. The original form of
+  # this monitor was `401 count > 0 in 1d`, which was right on 2026-09-09 when a broken
+  # realm produced 401s and literally zero successes. It became wrong the moment the
+  # OAuth2 client-credentials grant started working: under that grant the IdP holds an
+  # access token until it expires (access_token_lifespan = 3600), then gets 401s on the
+  # in-flight requests, re-mints, and retries successfully. Parallel provisioning
+  # workers all fail at once, so a HEALTHY realm emits periodic BURSTS of 401s.
+  #
+  # Measured 2026-09-10, 24h, ed (working) vs ntsb (broken):
+  #   ed    38 x 401 / 14,661 x 200  =   0.26%   <- would page every day on `> 0`
+  #   ntsb   9 x 401 /      0 x 200  = 100.00%   <- the real failure
+  # A 50% threshold separates those two by ~two orders of magnitude. This is the same
+  # rates-over-counts lesson as bedrock_server_errors (PR #22) and the upstream-API
+  # monitor (PR #42), which is also where the formula()/variables{} shape comes from —
+  # the inline `logs(...) / logs(...)` form does NOT parse.
+  query = "formula(\"(failed / total) * 100\").last(\"1d\") > 50"
+
+  variables {
+    event_query {
+      name        = "failed"
+      data_source = "logs"
+      indexes     = ["*"]
+      compute {
+        aggregation = "count"
+      }
+      search {
+        query = "\"/realms/${each.value}/scim/v2\" 401 -curl"
+      }
+    }
+    # Denominator is ALL real-IdP SCIM requests for the realm, not 401+200, so any
+    # other failure status (403/5xx) dilutes rather than inflates the rate.
+    event_query {
+      name        = "total"
+      data_source = "logs"
+      indexes     = ["*"]
+      compute {
+        aggregation = "count"
+      }
+      search {
+        query = "\"/realms/${each.value}/scim/v2\" -curl"
+      }
+    }
+  }
 
   message = <<-EOT
     {{#is_alert}}
-    SCIM user provisioning for **${each.value}** is being REJECTED by the shared Keycloak — {{value}} request(s) returned 401 in the last 24h. **${each.value} cannot provision or deprovision users**, so new staff get no access and departed staff keep theirs.
+    SCIM user provisioning for **${each.value}** is being REJECTED by the shared Keycloak — **{{value}}%** of its SCIM requests returned 401 in the last 24h. **${each.value} cannot provision or deprovision users**, so new staff get no access and departed staff keep theirs.
+
+    This is a RATE, so it is not the ordinary token-refresh churn: under the OAuth2 grant a healthy realm sits near 0.3% (a burst of 401s each time the hourly token expires, immediately followed by successful retries). Above 50% means the IdP is not getting a usable token at all.
 
     **Almost always the same cause:** ${each.value}'s IdP is configured with a static *Bearer Token*. Keycloak issues those with a 60-minute lifespan and the IdP cannot refresh one, so provisioning works for an hour after setup and then 401s forever. Confirm by minting a token by hand — if a fresh token gets 200 on `/realms/${each.value}/scim/v2/Users`, the server is fine and the IdP credential is the problem.
 
@@ -366,16 +411,19 @@ resource "datadog_monitor" "scim_provisioning_failing" {
     ${var.notification_channel}
     {{/is_alert}}
     {{#is_alert_recovery}}
-    Recovered: no SCIM 401s for ${each.value} in the last 24h. Confirm provisioning actually resumed — check for 200s on the Keycloak dashboard's SCIM section, since silence alone also produces this recovery.
+    Recovered: ${each.value}'s SCIM 401 rate is back under 20% over 24h. Confirm provisioning actually resumed rather than merely stopping — look for a healthy volume of 200s in the Keycloak dashboard's SCIM section, which is pinned to the same 24h window as this monitor.
     ${var.notification_channel}
     {{/is_alert_recovery}}
 
-    Realm: ${each.value} @ Query: "/realms/${each.value}/scim/v2" 401, excluding manual curl
+    Realm: ${each.value} @ Query: 401 rate over all "/realms/${each.value}/scim/v2" requests, excluding manual curl
   EOT
 
-  # `> 0` means critical must be 0 to match the query threshold.
+  # Must match the query threshold. critical_recovery well clear of the line so a realm
+  # sitting near 50% cannot flap Alert<->OK; a genuinely broken realm reads ~100% and a
+  # working one ~0.3%, so nothing legitimate lives between 20 and 50.
   monitor_thresholds {
-    critical = 0
+    critical          = 50
+    critical_recovery = 20
   }
 
   # A rejected IdP credential stays rejected until someone reconfigures the IdP, so
@@ -383,8 +431,18 @@ resource "datadog_monitor" "scim_provisioning_failing" {
   # with the 1d window this is at most one page per day per affected tenant.
   renotify_interval = 1440
 
-  # No data means no SCIM requests were made at all, which is NORMAL here — traffic
-  # is intermittent (12 active hours in 30 days). Must not be treated as breaching.
+  # No data means no SCIM requests at all, which is NORMAL here — traffic is intermittent
+  # and five of these eight realms sent nothing in the last 24h without anything being
+  # wrong. Must not be treated as breaching.
+  #
+  # KNOWN BLIND SPOT, inherent to a ratio: a realm whose IdP gives up retrying goes to
+  # No Data and this monitor falls silent while the realm is still broken. faa is the
+  # live example — 10 x 401 / 1 x 200 over 7d, but ZERO requests in the last 24h, so it
+  # is un-alertable here. Log volume cannot distinguish "broken and stopped trying" from
+  # "no user changes to sync", so closing this needs a different signal (last successful
+  # SCIM write per realm, or reconciling realm user counts against the IdP) rather than a
+  # different threshold. Tracked separately; faa is covered by usai-main #61 and
+  # FCSTS-35049 in the meantime.
   on_missing_data        = "default"
   include_tags           = false
   notify_audit           = false
