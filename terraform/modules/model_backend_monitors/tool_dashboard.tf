@@ -71,7 +71,7 @@ resource "datadog_dashboard" "tool_calls" {
 
       widget {
         note_definition {
-          content          = "One log event per tool invocation (`@event:\"Tool call\"`), so these counts are individual calls rather than requests — `@request_id` is shared by every call in one request, `@call_id` is unique per call. Over the 7 days sampled on 2026-09-16, **`web_search` was 4220 of 4353 calls (97%)**; `get_user_guide` 130; `run_code`, `gemini_rephrase` and `date_calculator` one each. A sudden change in that mix is usually a prompt or tool-config change rather than user behaviour.\n\n**This row counts attempts, not successes.** No completion event exists, so a call appearing here means the model asked for the tool — not that the tool worked. See the denial row for the only outcome signal available."
+          content          = "One event per tool invocation, not per request — `@request_id` groups the calls in one request. **These are attempts, not successes:** no completion event exists, so nothing here says the tool worked."
           background_color = "blue"
           font_size        = "14"
           text_align       = "left"
@@ -155,7 +155,7 @@ resource "datadog_dashboard" "tool_calls" {
 
       widget {
         note_definition {
-          content          = "The two failure events the app does emit:\n\n- **`Tool execution denied`** — the tool was recognised but refused. `@reason` explains it: over 7 days, `disabled` 16, `unregistered` 1. `disabled` means the tool is switched off for that tenant/config, so a rise here after a config change is expected and after no change is worth asking about.\n- **`Model called unregistered tool`** — the model hallucinated a tool that does not exist. Only 2 in 7 days; a spike suggests a prompt or tool-schema regression.\n\n**Baseline is very low: 19 failures against ~4353 attempts, about 0.4%.** Treat a sustained deny share above a few percent as a real signal rather than noise, and read `@reason` before escalating — `disabled` is configuration, `unregistered` is a model or schema problem, and they need different people.\n\nThese counts are NOT the inverse of success. A call absent from this row was *attempted*, not necessarily *completed* — there is no completion event to compare against."
+          content          = "The only outcome signal the app emits. `@reason` routes it: **`disabled`** = tool switched off for this tenant (config), **`unregistered`** = the model invented a tool that doesn't exist (prompt/schema). Baseline is ~0.4% of attempts.\n\nDenials cluster by model rather than by volume — the heaviest tool caller is absent from them. ~7% of denials carry no `@model`, so the by-model row can sum below the totals."
           background_color = "orange"
           font_size        = "14"
           text_align       = "left"
@@ -251,6 +251,38 @@ resource "datadog_dashboard" "tool_calls" {
           }
         }
       }
+
+      # Denials attributed to the requesting model. Deliberately NOT filtered on
+      # @model:* — the group_by already drops events without the attribute, and
+      # adding the filter would also change the widget's own denominator. 27 of 29
+      # denials carry @model (93%) as measured 2026-09-16 over 30d, so this can sum
+      # slightly below the counts above; that is expected, not a bug.
+      widget {
+        toplist_definition {
+          title = "Denials by model"
+          request {
+            log_query {
+              index        = "*"
+              search_query = "service:api-beta env:production @event:(\"Tool execution denied\" OR \"Model called unregistered tool\") $tool_name"
+              compute_query {
+                aggregation = "count"
+              }
+              group_by {
+                facet = "@model"
+                limit = 20
+                sort_query {
+                  aggregation = "count"
+                  order       = "desc"
+                }
+              }
+            }
+            style {
+              palette = "warm"
+            }
+          }
+        }
+      }
+
     }
   }
 
@@ -263,7 +295,7 @@ resource "datadog_dashboard" "tool_calls" {
 
       widget {
         note_definition {
-          content          = "Tool calls broken down by the model that requested them (`@model`). Fixed group_by rather than a picker, because 1 of 17 denials carries no `@model` and a `@model:*` filter would silently hide it.\n\nMeasured 2026-09-16 over 7 days: **`gpt_5_5_default_v2` alone accounted for 2248 of 4343 tool calls (52%)**, then `claude-opus-5` 543, `claude_4_6_sonnet` 350, `claude_4_8_opus` 313. That concentration matters operationally — `gpt-5.5` is the deployment hitting the Azure quota ceiling (GSA-TTS/usai#1322), so tool-heavy traffic and the throttled model are the same traffic. If tool volume shifts onto a different model, expect the throttling profile to move with it."
+          content          = "Tool calls by the model that requested them. A fixed breakdown rather than a picker, because some denials carry no `@model` and a `@model:*` filter would hide them."
           background_color = "purple"
           font_size        = "14"
           text_align       = "left"
@@ -329,7 +361,7 @@ resource "datadog_dashboard" "tool_calls" {
 
       widget {
         note_definition {
-          content          = "The individual events behind every count above, so a specific call can be read without leaving the board. Useful fields when drilling in: `@call_id` (this call), `@request_id` (all calls in the same request), `@conversation_id` (the user's thread), `@tool_name`, `@model`, `@reason` on denials, and `@client_ip`.\n\nThe stream is scoped to tool events only. Widen the query in place to `@tool_name:*` to include anything new the app starts emitting — worth doing occasionally, since a new `@event` value would otherwise be invisible on this board until someone adds a widget for it."
+          content          = "The individual events behind the counts above. Drill in with `@call_id` (this call), `@request_id` (all calls in the request), or `@conversation_id` (the user's thread)."
           background_color = "gray"
           font_size        = "14"
           text_align       = "left"
