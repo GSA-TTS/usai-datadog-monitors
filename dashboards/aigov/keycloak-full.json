@@ -1292,7 +1292,7 @@
       "id": 101,
       "definition": {
         "type": "note",
-        "content": "## SCIM Provisioning (IdP \u2192 Keycloak)\nUser provisioning from each tenant's IdP (Entra ID / Okta) into its Keycloak realm. **A 401 means the IdP's token was rejected \u2014 no users sync.**\n\n**Read these widgets differently from the rest of this dashboard:**\n- They query **istio-ingressgateway access logs**, not `service:keycloak` events. The realm and HTTP status live in raw log text, not in parsed attributes.\n- **The `$realm`, `$event_type` and `$environment` pickers do NOT apply here** and must not be added. They resolve to `@realmName` / `@type` / `env`, none of which exist on these logs \u2014 adding any of them returns zero and silently blanks the section (verified 2026-09-09).\n- These logs are level **`info`**, not `error`, so no error-severity filter or monitor surfaces them. That is why the 2026-08-25 breakage went unnoticed for two weeks.\n- `-curl` excludes manual `curl` testing so the counts reflect **real IdP traffic only**. Drop it to see hand-run probes.\n\n**If 401s are non-zero:** the IdP is almost certainly configured with a static *Bearer Token*, which Keycloak issues with a 60-minute lifespan and the IdP cannot refresh. Switch the IdP to **OAuth2 Client Credentials Grant** against `https://auth.usai.gov/realms/<realm>/protocol/openid-connect/token` with client `scim-client`, and leave the **Scope field empty** \u2014 Keycloak rejects `read write` with `invalid_scope`.",
+        "content": "## SCIM Provisioning (IdP \u2192 Keycloak)\nUser provisioning from each tenant's IdP (Entra ID / Okta) into its Keycloak realm. **A 401 means the IdP's token was rejected \u2014 no users sync.**\n\n**Read these widgets differently from the rest of this dashboard:**\n- They query **istio-ingressgateway access logs**, not `service:keycloak` events. The realm and HTTP status live in raw log text, not in parsed attributes.\n- **The `$realm`, `$event_type` and `$environment` pickers do NOT apply here** and must not be added. They resolve to `@realmName` / `@type` / `env`, none of which exist on these logs \u2014 adding any of them returns zero and silently blanks the section (verified 2026-09-09).\n- These logs are level **`info`**, not `error`, so no error-severity filter or monitor surfaces them. That is why the 2026-08-25 breakage went unnoticed for two weeks.\n- `-curl` excludes manual `curl` testing so the counts reflect **real IdP traffic only**. Drop it to see hand-run probes.\n- **These widgets are pinned to a 24h window** and ignore the dashboard time picker, deliberately: the `SCIM provisioning failing` monitors evaluate over `last(\"1d\")`, and when the widgets followed the picker the section read zero on a 1h view while the monitors were alerting on 401s from earlier in the day. Same query, different span, contradictory answers.\n\n**Judge 401s as a SHARE of requests, not a raw count.** Under the OAuth2 client-credentials grant the IdP uses an access token until it expires (60 min), takes 401s on whatever was in flight, re-mints and retries \u2014 so a *healthy* realm emits periodic bursts of 401s next to thousands of 200s. On 2026-09-10 `ed` was working normally at 38 x 401 / 14,661 x 200 (0.26%), while `ntsb` was genuinely broken at 9 x 401 / 0 x 200 (100%). The monitors alert above 50%.\n\n**If the 401 share is high:** the IdP is almost certainly configured with a static *Bearer Token*, which Keycloak issues with a 60-minute lifespan and the IdP cannot refresh. Switch the IdP to **OAuth2 Client Credentials Grant** against `https://auth.usai.gov/realms/<realm>/protocol/openid-connect/token` with client `scim-client`, and leave the **Scope field empty** \u2014 Keycloak rejects `read write` with `invalid_scope`.\n\n**Silence is not health.** A realm whose IdP has stopped retrying shows no 401s and no 200s, and the monitors go to No Data rather than alerting. `faa` is in exactly that state. Check for a plausible volume of 200s, not merely for an absence of 401s.",
         "background_color": "yellow",
         "font_size": "14",
         "text_align": "left",
@@ -1342,7 +1342,10 @@
           }
         ],
         "autoscale": true,
-        "precision": 0
+        "precision": 0,
+        "time": {
+          "live_span": "1d"
+        }
       },
       "layout": {
         "x": 0,
@@ -1384,7 +1387,10 @@
           }
         ],
         "autoscale": true,
-        "precision": 0
+        "precision": 0,
+        "time": {
+          "live_span": "1d"
+        }
       },
       "layout": {
         "x": 4,
@@ -1426,7 +1432,10 @@
           }
         ],
         "autoscale": true,
-        "precision": 0
+        "precision": 0,
+        "time": {
+          "live_span": "1d"
+        }
       },
       "layout": {
         "x": 8,
@@ -1506,7 +1515,10 @@
             },
             "display_type": "bars"
           }
-        ]
+        ],
+        "time": {
+          "live_span": "1d"
+        }
       },
       "layout": {
         "x": 0,
@@ -1778,7 +1790,10 @@
             },
             "display_type": "bars"
           }
-        ]
+        ],
+        "time": {
+          "live_span": "1d"
+        }
       },
       "layout": {
         "x": 0,
@@ -1824,7 +1839,10 @@
               }
             ]
           }
-        ]
+        ],
+        "time": {
+          "live_span": "1d"
+        }
       },
       "layout": {
         "x": 0,
