@@ -12,11 +12,12 @@
 locals {
   # Bedrock invocation-latency monitor (main.tf: bedrock_invocation_latency_high)
   # + Model Backend dashboard markers (dashboard.tf). Milliseconds.
-  # Refit history: 30s -> 45s (PR #22) -> 60s/15m (PR #31, opus-4-8 variance).
-  bedrock_latency_crit_ms          = 60000
-  bedrock_latency_warn_ms          = 40000
-  bedrock_latency_crit_recovery_ms = 50000
-  bedrock_latency_warn_recovery_ms = 30000
+  # Refit history: 30s -> 45s (PR #22) -> 60s/15m (PR #31, opus-4-8 variance)
+  #             -> 75s/30m (this change, measured — see main.tf for the numbers).
+  bedrock_latency_crit_ms          = 75000
+  bedrock_latency_warn_ms          = 50000
+  bedrock_latency_crit_recovery_ms = 55000
+  bedrock_latency_warn_recovery_ms = 40000
 
   # Pod-restart-storm monitor (infra_monitors.tf: pod_restart_storm) + Deployments
   # & Rollouts dashboard pod-age markers and youngest-pods toplist bands

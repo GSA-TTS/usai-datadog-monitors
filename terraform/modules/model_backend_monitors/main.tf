@@ -19,28 +19,59 @@ locals {
 # ---------------------------------------------------------------------------
 
 resource "datadog_monitor" "bedrock_invocation_latency_high" {
-  name = "[${var.tenant}] Bedrock - Invocation Latency High (>60s avg, per model)"
+  name = "[${var.tenant}] Bedrock - Invocation Latency High (>75s avg over 30m, per model)"
   type = "metric alert"
-  # Avg invocation latency per model over 15m. 60s critical / 40s warning.
-  # Refit 2026-07-10 (2nd pass): 45s/10m still flapped on doc/hud opus-4-8.
-  # CloudWatch shows that model AVERAGES ~16s but individual reasoning requests
-  # run 48-51s, so in a low-volume 10m window a couple of long calls drag the
-  # average over 45s and then back — real latency, but the inherent variance of
-  # a heavy reasoning model at low volume, not an incident. 60s over a 15m
-  # window smooths that: it takes a sustained cluster of slow calls (a true
-  # "stuck" state) to hold the 15m average above 60s. Still well under the 88s+
-  # user-visible collapse. Recovery hysteresis (50s/30s) prevents re-flap.
-  query = "avg(last_15m):avg:aws.bedrock.invocation_latency{*} by {modelid} > ${local.bedrock_latency_crit_ms}"
+  # Avg invocation latency per model over 30m. 75s critical / 50s warning.
+  #
+  # Refit 2026-07-10 (2nd pass): 45s/10m still flapped on doc/hud opus-4-8. The
+  # mechanism is low-volume variance — a model AVERAGES ~16s but individual
+  # reasoning requests run 48-51s, so a couple of long calls drag a short window
+  # over the line and back. Real latency, not an incident.
+  #
+  # Refit 2026-09-14 (3rd pass): 60s/15m still flapped, now on gsa opus-5, and it
+  # was never specific to one model. Measured over 14 days on gsa, counting the
+  # windows that would BREACH across 9 models:
+  #
+  #            window | >60s | >75s | >90s
+  #               15m |  107 |   52 |   30    <- 107 = ~7.6 breaches/DAY, one tenant
+  #               30m |   59 |   30 |   16
+  #                1h |   37 |   16 |    9
+  #
+  # Raising the threshold alone does not address the cause; widening the window
+  # does, because the cause is short-window variance. But the window cannot be
+  # widened without bound, because averaging also dilutes a real incident. The
+  # 2026-06-02 incident this monitor exists to catch, re-measured at each rollup:
+  #
+  #            window | peak   | >60s | >75s | >90s
+  #               15m | 130.9s |   14 |    3 |    3
+  #               30m |  86.1s |    7 |    2 |    0
+  #                1h |  71.0s |    2 |    0 |    0   <- 75s here would MISS it
+  #
+  # So 1h/75s and 30m/90s are disqualified: quieter, but blind to the thing being
+  # monitored. 30m/75s is the best surviving combination — it still catches
+  # 2026-06-02 (peak 86.1s at 30m) while cutting breaches 107 -> 30, a 72%
+  # reduction, and 75s stays below the 88s+ user-visible collapse so it still
+  # fires before users are badly affected. 15m/90s ties on noise but alerts only
+  # AFTER that collapse point and leaves the variance cause untouched.
+  #
+  # Per-model at 30m/75s over the same 14 days: sonnet-5 11, sonnet-4-6 7,
+  # sonnet-4-5 4, opus-4-8 3, opus-5 3, opus-4-7 2, haiku/llama/embed 0. Note the
+  # noisiest models are the SONNETS, not the opus-5 that prompted this — so a
+  # single shared threshold remains a compromise, and per-model thresholds are the
+  # real answer if this flaps a fourth time.
+  #
+  # Recovery hysteresis (55s/40s) prevents re-flap around the new line.
+  query = "avg(last_30m):avg:aws.bedrock.invocation_latency{*} by {modelid} > ${local.bedrock_latency_crit_ms}"
 
   message = <<-EOT
     {{#is_alert}}
-    Bedrock model {{modelid.name}} average invocation latency has exceeded 60s over the last 15 minutes (current: {{value}} ms).
+    Bedrock model {{modelid.name}} average invocation latency has exceeded 75s over the last 30 minutes (current: {{value}} ms).
 
     This is the signature of the 2026-06-02 incident: requests succeed but very slowly, saturating app concurrency and collapsing throughput — with NO throttling reported by AWS. Likely a Bedrock model-serving slowdown. Check the model's region capacity and consider failover/load-shedding.
     ${var.notification_channel}
     {{/is_alert}}
     {{#is_warning}}
-    Bedrock model {{modelid.name}} average invocation latency is elevated (>40s over 15m, current {{value}} ms). Watch for further degradation. (No page — visible on the Model Backend dashboard.)
+    Bedrock model {{modelid.name}} average invocation latency is elevated (>50s over 30m, current {{value}} ms). Watch for further degradation. (No page — visible on the Model Backend dashboard.)
     {{/is_warning}}
     {{#is_alert_recovery}}
     Recovered: Bedrock model {{modelid.name}} invocation latency back below threshold (current {{value}} ms).
@@ -57,8 +88,11 @@ resource "datadog_monitor" "bedrock_invocation_latency_high" {
     warning_recovery  = local.bedrock_latency_warn_recovery_ms
   }
 
-  notify_no_data    = false
-  renotify_interval = 60
+  notify_no_data = false
+  # 60m re-paged hourly for the whole time a model stayed slow, turning one
+  # degradation into a stream of messages. The action here is "check region
+  # capacity / consider failover" — not something to re-prompt every hour.
+  renotify_interval = 240
   notify_audit      = false
   new_group_delay   = 300
 
