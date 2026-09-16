@@ -71,7 +71,7 @@ resource "datadog_dashboard" "tool_calls" {
 
       widget {
         note_definition {
-          content          = "One event per tool invocation, not per request — `@request_id` groups the calls in one request. **These are attempts, not successes:** no completion event exists, so nothing here says the tool worked."
+          content          = "One event per tool invocation, not per request — averaging **5.7 calls per request**, so watch the heaviest-requests row for runaway loops. **These are attempts, not successes:** no completion event exists, so nothing here says the tool worked."
           background_color = "blue"
           font_size        = "14"
           text_align       = "left"
@@ -134,6 +134,36 @@ resource "datadog_dashboard" "tool_calls" {
               group_by {
                 facet = "@tool_name"
                 limit = 15
+                sort_query {
+                  aggregation = "count"
+                  order       = "desc"
+                }
+              }
+            }
+          }
+        }
+      }
+
+      # Runaway-loop detector. @request_id is present on 100% of tool events
+      # (4268/4268 measured 2026-09-16), so grouping by it is sound. Average is
+      # 5.7 calls per request, but the tail matters: the heaviest request in the
+      # window made 24 web_search calls over 110 SECONDS and still completed.
+      # That is a user-facing latency problem in its own right and it sits close
+      # to the frontend's 300s ceiling (GSA-TTS/usai#1373) — a slightly longer
+      # loop tips a completing request into a 502.
+      widget {
+        toplist_definition {
+          title = "Heaviest requests — tool calls in a single request"
+          request {
+            log_query {
+              index        = "*"
+              search_query = "service:api-beta env:production @event:\"Tool call\" $tool_name"
+              compute_query {
+                aggregation = "count"
+              }
+              group_by {
+                facet = "@request_id"
+                limit = 10
                 sort_query {
                   aggregation = "count"
                   order       = "desc"
