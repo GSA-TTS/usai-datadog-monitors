@@ -145,7 +145,9 @@ resource "datadog_synthetics_test" "api_health" {
 # `dol` (its DNS label), NOT `doli` (/realms/doli is a 404). That is exactly why
 # this keys off local.edge_label rather than var.tenant.
 resource "datadog_synthetics_test" "keycloak_realm" {
-  for_each = toset(var.enable_keycloak_realm_synthetic && length(var.synthetic_locations) > 0 ? [local.edge_label] : [])
+  # This probes shared auth.usai.gov, not the tenant edge, so it is gated here
+  # rather than via local.edge_synthetics_enabled.
+  for_each = toset(var.enable_alerting && var.enable_keycloak_realm_synthetic && length(var.synthetic_locations) > 0 ? [local.edge_label] : [])
 
   name      = "[${var.tenant}] Keycloak realm unavailable — auth.usai.gov/realms/${each.value}"
   type      = "api"

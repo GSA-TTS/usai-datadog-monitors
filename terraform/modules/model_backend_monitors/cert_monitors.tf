@@ -144,10 +144,9 @@ locals {
     local.edge_api_host,
   ]
 
-  # Only create synthetics when enabled AND a location is set. Both now default to
-  # on/public — the private-location requirement was based on a WAF claim that
-  # live evidence disproved (see the corrected caveat above).
-  edge_synthetics_enabled = var.enable_edge_synthetics && length(var.synthetic_locations) > 0
+  # Only create edge synthetics when alerting is enabled, edge checks are enabled,
+  # and a location is set. api_health also derives from this local.
+  edge_synthetics_enabled = var.enable_alerting && var.enable_edge_synthetics && length(var.synthetic_locations) > 0
 
   edge_hosts_effective = local.edge_synthetics_enabled ? local.edge_hosts : []
 
@@ -535,7 +534,7 @@ resource "datadog_synthetics_test" "ssl_cert_expiring_soon" {
 resource "datadog_monitor" "acm_cert_expiry" {
   # UNVERIFIED (see header) — gated off by its own flag; creates nothing until
   # someone re-tests the No-Data behavior and explicitly enables it.
-  count = var.enable_acm_cert_monitor ? 1 : 0
+  count = var.enable_acm_cert_monitor && var.enable_alerting ? 1 : 0
 
   name = "[${var.tenant}] ACM cert expiring soon (account soonest-expiry)"
   type = "metric alert"
@@ -667,6 +666,8 @@ resource "datadog_monitor" "acm_cert_expiry" {
 # actually down) cannot sustain the ratio long enough to page. Critical 90% (not
 # 100%) tolerates a few interleaved successes during pod churn.
 resource "datadog_monitor" "frontend_upstream_api_unreachable" {
+  count = local.alert_count
+
   name = "[${var.tenant}] Frontend - upstream API unreachable (TLS/connect failure)"
   type = "log alert"
 
