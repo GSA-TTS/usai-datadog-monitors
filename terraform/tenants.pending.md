@@ -9,15 +9,38 @@ resources tagged `Environment in [prod, production]`).
 
 ## Enabled (23) — secrets readable, wired in `tenants.tf`
 
-ang, dnfsb, doc, doi, doj, doli, dot, ed, faa, fhfa, ftc, gsa, hhs, hud,
-ncua, nrc, ntsb, opm, oge, pc, sss, stateoig, usda
+dnfsb, doc, doi, doj, dot, ed, eeoc, faa, fhfa, ftc, gsa, hhs, hud, ncua,
+nrc, nsf, ntsb, opm, oge, pc, sss, stateoig, usda
 
 (Original 7 enabled 2026-06-10; remaining 16 unblocked 2026-07-09 after FCS
-applied tagging to all USAi agencies.)
+applied tagging to all USAi agencies. nsf + eeoc onboarded 2026-07-25 — PR #32;
+this list had not been updated for them, corrected here.)
 
 Note non-standard secret names / profiles:
-- doli → `doli-shared-dd-api-key` / `doli-shared-dd-app-key`, profile `aigov-doli`
 - Most new tenants → `usai-<tenant>-shared-dd-*` (not `<tenant>-shared-dd-*`)
+
+## Alerting retired (3) — RUM and dashboards retained
+
+oge, hhs, opm
+
+These tenants stay wired in `tenants.tf`, but set `enable_alerting = false`.
+Terraform destroys their per-tenant monitors and synthetics while keeping their
+RUM applications and dashboards, so residual traffic remains visible.
+
+Root-module aigov SCIM monitoring still includes the `opm` realm because it
+targets shared Keycloak, not the opm Datadog org.
+
+## Removed from Terraform management — secret access lost (2)
+
+ang, doli
+
+`ang` and `doli` were removed from `tenants.tf` after the DevOps/SRE role lost
+`secretsmanager:GetSecretValue` access to their Datadog API/app-key secrets.
+Terraform cannot configure those tenants' Datadog providers without the keys, so
+it cannot destroy or update their live Datadog resources. Remove their existing
+objects from Terraform state with `terraform state rm` (state-only) when applying
+this change; any live Datadog resources in those orgs are then orphaned and must
+be cleaned up manually if needed.
 
 ## aigov — wired (no model_backend module)
 

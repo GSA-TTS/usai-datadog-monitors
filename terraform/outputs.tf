@@ -11,10 +11,8 @@ output "rum_credentials" {
     nrc      = { application_id = module.nrc.rum_application_id, client_token = module.nrc.rum_client_token }
     ntsb     = { application_id = module.ntsb.rum_application_id, client_token = module.ntsb.rum_client_token }
     oge      = { application_id = module.oge.rum_application_id, client_token = module.oge.rum_client_token }
-    ang      = { application_id = module.ang.rum_application_id, client_token = module.ang.rum_client_token }
     doc      = { application_id = module.doc.rum_application_id, client_token = module.doc.rum_client_token }
     doi      = { application_id = module.doi.rum_application_id, client_token = module.doi.rum_client_token }
-    doli     = { application_id = module.doli.rum_application_id, client_token = module.doli.rum_client_token }
     dot      = { application_id = module.dot.rum_application_id, client_token = module.dot.rum_client_token }
     ed       = { application_id = module.ed.rum_application_id, client_token = module.ed.rum_client_token }
     fhfa     = { application_id = module.fhfa.rum_application_id, client_token = module.fhfa.rum_client_token }
