@@ -141,10 +141,10 @@ variable "cert_hosts" {
     Running cert checks per host therefore produced 3 identical expiry alerts for
     one cert renewal.
 
-    Set explicitly if a tenant ever gets a SEPARATE cert for api or console. To
-    check: `openssl s_client -connect <host>:443 -servername <host> | openssl x509
+    Set explicitly if a tenant ever gets a SEPARATE cert for api. To check:
+    `openssl s_client -connect <host>:443 -servername <host> | openssl x509
     -noout -serial` on each host and compare. Reachability is unaffected either way
-    — https_reach always runs on every host in var.edge_hosts.
+    — https_reach runs on every host in var.edge_hosts.
   EOT
   type        = list(string)
   default     = []

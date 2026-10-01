@@ -129,18 +129,12 @@ locals {
   # why api_health is its own resource in api_auth_synthetics.tf.
   edge_api_host = "api.${local.edge_label}.usai.gov"
 
-  # Public edge hostnames per tenant: apex (was chat.<label>, now 301s to apex),
-  # console, and api. All three verified to resolve and serve 200 on `/` across all
-  # 15 enabled tenants (2026-08-19). Override via var.edge_hosts for any tenant
-  # whose naming differs beyond the label.
-  #
-  # api was added 2026-08-19: it had TLS + reachability coverage in exactly one org
-  # (ftc, hand-built in the UI) and none anywhere else, despite being the host the
-  # chat frontend depends on. ftc's tests passing from aws:us-gov-west-1 is what
-  # proves the host is reachable from the Datadog location.
+  # Public edge hostnames per tenant. console.<label> is intentionally omitted:
+  # that URL is being decommissioned, and leaving it here would create guaranteed
+  # synthetic noise once DNS/routing is removed. api stays covered because it is
+  # the host the chat frontend calls server-side.
   edge_hosts = length(var.edge_hosts) > 0 ? var.edge_hosts : [
     local.edge_apex_host,
-    "console.${local.edge_label}.usai.gov",
     local.edge_api_host,
   ]
 
@@ -165,12 +159,11 @@ locals {
   # is caught exactly as before.
   #
   # NOTE this is only true while the hosts share a cert. If a tenant ever gets a
-  # separate cert for api or console, add those hosts via var.cert_hosts — the check
-  # to run is `openssl s_client -connect <host>:443 | openssl x509 -noout -serial`
-  # on each host and compare serials.
+  # separate cert for api, add it via var.cert_hosts — the check to run is
+  # `openssl s_client -connect <host>:443 | openssl x509 -noout -serial` on each
+  # host and compare serials.
   #
-  # Per-host REACHABILITY is unaffected: https_reach still runs on all three hosts,
-  # because they front genuinely different backends.
+  # Per-host REACHABILITY still covers the serving hosts in local.edge_hosts.
   cert_hosts = length(var.cert_hosts) > 0 ? var.cert_hosts : [local.edge_apex_host]
 
   cert_hosts_effective = local.edge_synthetics_enabled ? local.cert_hosts : []
