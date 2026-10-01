@@ -12,6 +12,9 @@
 
 locals {
   base_tags = ["managed-by:terraform", "platform:usai", "tenant:${var.tenant}"]
+
+  # Shared count gate for every datadog_monitor in this module.
+  alert_count = var.enable_alerting ? 1 : 0
 }
 
 # ---------------------------------------------------------------------------
@@ -19,6 +22,8 @@ locals {
 # ---------------------------------------------------------------------------
 
 resource "datadog_monitor" "bedrock_invocation_latency_high" {
+  count = local.alert_count
+
   name = "[${var.tenant}] Bedrock - Invocation Latency High (>75s avg over 30m, per model)"
   type = "metric alert"
   # Avg invocation latency per model over 30m. 75s critical / 50s warning.
@@ -100,6 +105,8 @@ resource "datadog_monitor" "bedrock_invocation_latency_high" {
 }
 
 resource "datadog_monitor" "bedrock_invocation_throttles" {
+  count = local.alert_count
+
   name = "[${var.tenant}] Bedrock - Invocation Throttles (rate-limited by AWS)"
   type = "metric alert"
   # Any sustained throttling means we've hit a Bedrock quota. Did NOT fire in
@@ -135,6 +142,8 @@ resource "datadog_monitor" "bedrock_invocation_throttles" {
 }
 
 resource "datadog_monitor" "bedrock_server_errors" {
+  count = local.alert_count
+
   name = "[${var.tenant}] Bedrock - Server Error Rate High (5xx % per model)"
   type = "metric alert"
   # Error RATE, not raw count. Refit 2026-07-09: the old "5 errors in 5m"
@@ -232,6 +241,8 @@ resource "datadog_monitor" "bedrock_server_errors" {
 # ---------------------------------------------------------------------------
 
 resource "datadog_monitor" "azure_openai_throttling" {
+  count = local.alert_count
+
   name = "[${var.tenant}] Azure OpenAI - rate limited by Azure (no page - threshold un-tuned)"
   type = "log alert"
 
@@ -300,6 +311,8 @@ resource "datadog_monitor" "azure_openai_throttling" {
 }
 
 resource "datadog_monitor" "azure_openai_stream_aborted" {
+  count = local.alert_count
+
   name = "[${var.tenant}] Azure OpenAI - upstream 500s reaching the app"
   type = "log alert"
 

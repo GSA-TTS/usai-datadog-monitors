@@ -19,6 +19,8 @@
 # probes fail mesh-wide. Threshold sized off the incident: baseline is ~0/5m, the
 # incident ran ~475/5m, so >50 in 5m is a clear, early signal well below peak.
 resource "datadog_monitor" "istio_cert_signing_failures" {
+  count = local.alert_count
+
   name = "[${var.tenant}] istio - mTLS certificate signing failing (control-plane)"
   type = "log alert"
 
@@ -55,6 +57,8 @@ resource "datadog_monitor" "istio_cert_signing_failures" {
 # "ddog_prof_Exporter_send failed", "Failed to send Instrumentation Telemetry").
 # Means observability data is being DROPPED — gaps in APM/traces for that service.
 resource "datadog_monitor" "dd_agent_telemetry_send_failures" {
+  count = local.alert_count
+
   name = "[${var.tenant}] Datadog agent - telemetry/trace send failing (observability gap)"
   type = "log alert"
 
@@ -92,6 +96,8 @@ resource "datadog_monitor" "dd_agent_telemetry_send_failures" {
 # a cluster failover), not a database-load problem. Threshold is low because any
 # sustained recurrence above the ~0 baseline is worth a look.
 resource "datadog_monitor" "docdb_health_check_failing" {
+  count = local.alert_count
+
   name = "[${var.tenant}] DocumentDB - health check failing (DNS / reachability)"
   type = "log alert"
 
@@ -134,6 +140,8 @@ resource "datadog_monitor" "docdb_health_check_failing" {
 # Motivated by GSA api crash-looping (51 OOMs/24h, 2026-07-09) with zero
 # alerting coverage.
 resource "datadog_monitor" "container_oom_kill_loop" {
+  count = local.alert_count
+
   name = "[${var.tenant}] Container crash-loop — OOMKilled / probe failing (exit 137)"
   type = "event-v2 alert"
 
@@ -183,6 +191,8 @@ resource "datadog_monitor" "container_oom_kill_loop" {
 # full day with ZERO alerting — found only by hand. This is the monitor that
 # would have paged on it.
 resource "datadog_monitor" "deployment_unavailable" {
+  count = local.alert_count
+
   name = "[${var.tenant}] Deployment lacks minimum availability (stuck rollout / not ready)"
   type = "query alert"
 
@@ -344,6 +354,8 @@ resource "datadog_monitor" "deployment_unavailable" {
 # what is measured and hand over a decision procedure; and notify_by collapses the
 # per-deployment fan-out to one notification per cluster (see below).
 resource "datadog_monitor" "pod_restart_storm" {
+  count = local.alert_count
+
   name = "[${var.tenant}] Pods cycling — deployments not staying up (deploy storm or restart loop)"
   type = "query alert"
 
@@ -442,6 +454,8 @@ resource "datadog_monitor" "pod_restart_storm" {
 # (~20-40 failed jobs/day, spiking to 742 in a day) with ZERO alerting — found
 # only by reading the events by hand. Same silent-failure class as #896.
 resource "datadog_monitor" "cronjob_failing" {
+  count = local.alert_count
+
   name = "[${var.tenant}] CronJob runs failing (scheduled job broken / DeadlineExceeded)"
   type = "query alert"
 

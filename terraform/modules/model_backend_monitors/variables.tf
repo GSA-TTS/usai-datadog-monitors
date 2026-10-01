@@ -14,6 +14,24 @@ variable "notification_channel" {
   type        = string
 }
 
+variable "enable_alerting" {
+  description = <<-EOT
+    Create this tenant's alerting resources: monitors and synthetics. Set false
+    to destroy alerting while keeping the RUM app and dashboards available for
+    residual-usage visibility.
+
+    This only controls resources in this module. Root-module aigov Keycloak/SCIM
+    alerts are keyed by realm and must be retired separately.
+
+    Implementation note: monitors use count, so introducing this flag moves
+    monitor state addresses from datadog_monitor.<name> to
+    datadog_monitor.<name>[0]. That is a state-only move, but the migration plan
+    must be untargeted because Terraform will not plan a subset of pending moves.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "enable_edge_synthetics" {
   description = <<-EOT
     Create the edge health/TLS/reachability synthetics (cert_monitors.tf).
