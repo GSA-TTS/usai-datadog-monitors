@@ -278,56 +278,9 @@ module "oge" {
 
   tenant               = "oge"
   notification_channel = var.notification_channel
-}
 
-# ---- ang -------------------------------------------------------------------
-provider "aws" {
-  alias   = "ang"
-  region  = "us-east-1"
-  profile = "ang"
-}
-
-data "aws_secretsmanager_secret_version" "ang_api" {
-  provider  = aws.ang
-  secret_id = "usai-ang-shared-dd-api-key"
-}
-
-data "aws_secretsmanager_secret_version" "ang_app" {
-  provider  = aws.ang
-  secret_id = "usai-ang-shared-dd-app-key"
-}
-
-provider "datadog" {
-  alias    = "ang"
-  api_key  = data.aws_secretsmanager_secret_version.ang_api.secret_string
-  app_key  = data.aws_secretsmanager_secret_version.ang_app.secret_string
-  api_url  = "https://api.ddog-gov.com/"
-  validate = true
-}
-
-module "ang" {
-  source    = "./modules/model_backend_monitors"
-  providers = { datadog = datadog.ang }
-
-  tenant               = "ang"
-  notification_channel = var.notification_channel
-
-  # Edge synthetics OFF for ang: the app is not deployed, so there is nothing at
-  # the edge to probe. Evidence (2026-08-18): ang.usai.gov/healthz returns 503 and
-  # chat./console.ang do not connect at all, while in the ang org the Deployment-
-  # availability, Pod-restart-storm and all three Bedrock monitors read No Data
-  # with EC2/RDS OK — i.e. infrastructure exists, workload does not. The 503 is an
-  # ingress with no backend, not an outage.
-  #
-  # This is a DELIBERATE monitoring gap, not an oversight. Flip to true (delete
-  # this argument) the moment ang's app is deployed — the pre-existing UI synthetic
-  # for ang has been sitting in Alert on exactly this, which is the alert-fatigue
-  # failure mode: a monitor that is always red teaches people to ignore it.
-  # Re-verified 2026-08-19 after the platform-wide cutover: ang.usai.gov still
-  # returns 503 and chat./console.ang still do not connect, so still not deployed.
-  # NOTE ang DOES get the Keycloak realm synthetic (realm `ang` verified live) —
-  # that one targets shared aigov infra, not ang's absent edge.
-  enable_edge_synthetics = false
+  # Retire monitors/synthetics; keep RUM and dashboards for residual-usage visibility.
+  enable_alerting = false
 }
 
 # ---- doc -------------------------------------------------------------------
@@ -404,85 +357,6 @@ module "doi" {
   # table in cert_monitors.tf — 8 sibling tenants time out from that location and
   # are deliberately left off.
   enable_edge_synthetics = true
-}
-
-# ---- doli ------------------------------------------------------------------
-provider "aws" {
-  alias   = "doli"
-  region  = "us-east-1"
-  profile = "aigov-doli"
-}
-
-data "aws_secretsmanager_secret_version" "doli_api" {
-  provider  = aws.doli
-  secret_id = "doli-shared-dd-api-key"
-}
-
-data "aws_secretsmanager_secret_version" "doli_app" {
-  provider  = aws.doli
-  secret_id = "doli-shared-dd-app-key"
-}
-
-provider "datadog" {
-  alias    = "doli"
-  api_key  = data.aws_secretsmanager_secret_version.doli_api.secret_string
-  app_key  = data.aws_secretsmanager_secret_version.doli_app.secret_string
-  api_url  = "https://api.ddog-gov.com/"
-  validate = true
-}
-
-module "doli" {
-  source    = "./modules/model_backend_monitors"
-  providers = { datadog = datadog.doli }
-
-  tenant               = "doli"
-  notification_channel = var.notification_channel
-
-  # Edge synthetics OFF for doli: it has no working public edge to probe.
-  # Re-verified 2026-08-19, after the platform-wide <tenant>.usai.gov cutover —
-  # doli did NOT come along: dol.usai.gov and doli.usai.gov both still fail to
-  # resolve, and every path on chat.dol/console.dol returns 404. Enabling would
-  # create tests that can only ever fail. Flip to true once doli actually serves.
-  enable_edge_synthetics = false
-
-  # doli is the one tenant whose DNS label is not its slug — it publishes under
-  # `dol` (chat.dol.usai.gov). Now set explicitly because the Keycloak realm
-  # synthetic keys off this label and doli's REALM is also `dol`:
-  # auth.usai.gov/realms/doli is a 404, /realms/dol returns 200 (verified
-  # 2026-08-19). Safe to set while enable_edge_synthetics is false — it only
-  # corrects the name, it does not create any edge test.
-  edge_domain_label = "dol"
-}
-
-# Temporary blanket mute of ALL doli monitors (2026-07-21). doli was paging
-# noisily (whole-tenant deployment-availability blips + OOM). This is a
-# reversible downtime scoped to the tenant:doli tag that every monitor in the
-# module carries — it silences notifications without changing any monitor
-# definition or touching the workloads. REMOVE this resource to un-mute.
-# (Not a decommission — see the tenant-ops thread; revisit whether doli should
-# be retired separately.)
-resource "datadog_downtime_schedule" "doli_mute" {
-  provider = datadog.doli
-
-  # scope MUST be "*", not "tenant:doli". `scope` filters which evaluated metric
-  # GROUPS are muted, not which monitors — and the doli monitors group by kube_*
-  # tags (kube_cluster_name/kube_namespace/kube_deployment), which carry no
-  # tenant:doli tag. A scope of "tenant:doli" matched zero groups, so the
-  # downtime silenced nothing and deployment_unavailable kept paging (2026-07-24).
-  # monitor_identifier.monitor_tags below is what restricts the mute to doli's
-  # monitors; scope "*" then mutes all of their groups.
-  scope = "*"
-
-  monitor_identifier {
-    monitor_tags = ["tenant:doli"]
-  }
-
-  # Empty one_time_schedule = starts now, no end → indefinite mute until this
-  # resource is removed. (The API requires a schedule block to be present.)
-  one_time_schedule {}
-
-  display_timezone = "UTC"
-  message          = "Temporary blanket mute of doli monitors (noise, 2026-07-21). Remove this downtime to re-enable paging."
 }
 
 # ---- dot -------------------------------------------------------------------
@@ -668,6 +542,10 @@ module "hhs" {
 
   tenant               = "hhs"
   notification_channel = var.notification_channel
+
+  # Retire monitors/synthetics; keep RUM and dashboards for residual-usage visibility.
+  enable_alerting = false
+
   # Edge synthetics ON: hhs is verified reachable from the Datadog
   # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
   # table in cert_monitors.tf — 8 sibling tenants time out from that location and
@@ -782,6 +660,11 @@ module "opm" {
 
   tenant               = "opm"
   notification_channel = var.notification_channel
+
+  # Retire monitors/synthetics; keep RUM and dashboards for residual-usage visibility.
+  # Root-module aigov SCIM monitoring still includes the `opm` Keycloak realm.
+  enable_alerting = false
+
   # Edge synthetics ON: opm is verified reachable from the Datadog
   # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
   # table in cert_monitors.tf — 8 sibling tenants time out from that location and
