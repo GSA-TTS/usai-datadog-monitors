@@ -16,10 +16,12 @@ output "rum_credentials" {
     dot      = { application_id = module.dot.rum_application_id, client_token = module.dot.rum_client_token }
     ed       = { application_id = module.ed.rum_application_id, client_token = module.ed.rum_client_token }
     fhfa     = { application_id = module.fhfa.rum_application_id, client_token = module.fhfa.rum_client_token }
+    frtib    = { application_id = module.frtib.rum_application_id, client_token = module.frtib.rum_client_token }
     gsa      = { application_id = module.gsa.rum_application_id, client_token = module.gsa.rum_client_token }
     hhs      = { application_id = module.hhs.rum_application_id, client_token = module.hhs.rum_client_token }
     hud      = { application_id = module.hud.rum_application_id, client_token = module.hud.rum_client_token }
     ncua     = { application_id = module.ncua.rum_application_id, client_token = module.ncua.rum_client_token }
+    nlrb     = { application_id = module.nlrb.rum_application_id, client_token = module.nlrb.rum_client_token }
     opm      = { application_id = module.opm.rum_application_id, client_token = module.opm.rum_client_token }
     pc       = { application_id = module.pc.rum_application_id, client_token = module.pc.rum_client_token }
     sss      = { application_id = module.sss.rum_application_id, client_token = module.sss.rum_client_token }

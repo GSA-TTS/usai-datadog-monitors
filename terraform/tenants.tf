@@ -181,6 +181,41 @@ module "ftc" {
   enable_edge_synthetics = true
 }
 
+# ---- frtib ----------------------------------------------------------------
+# Restored from the existing shared Terraform state, which tracks FRTIB's
+# resources under this provider alias.
+provider "aws" {
+  alias   = "frtib"
+  region  = "us-east-1"
+  profile = "frtib"
+}
+
+data "aws_secretsmanager_secret_version" "frtib_api" {
+  provider  = aws.frtib
+  secret_id = "usai-frtib-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "frtib_app" {
+  provider  = aws.frtib
+  secret_id = "usai-frtib-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "frtib"
+  api_key  = data.aws_secretsmanager_secret_version.frtib_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.frtib_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "frtib" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.frtib }
+
+  tenant               = "frtib"
+  notification_channel = var.notification_channel
+}
+
 # ---- nrc ------------------------------------------------------------------
 provider "aws" {
   alias   = "nrc"
@@ -629,6 +664,43 @@ module "ncua" {
   enable_edge_synthetics = true
 }
 
+# ---- nlrb ------------------------------------------------------------------
+# Restored from the existing shared Terraform state, which already tracks the
+# NLRB module resources under this provider alias. Keep the conventional tenant
+# wiring so Terraform can refresh and manage those objects rather than treating
+# them as provider-orphaned resources.
+provider "aws" {
+  alias   = "nlrb"
+  region  = "us-east-1"
+  profile = "nlrb"
+}
+
+data "aws_secretsmanager_secret_version" "nlrb_api" {
+  provider  = aws.nlrb
+  secret_id = "usai-nlrb-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "nlrb_app" {
+  provider  = aws.nlrb
+  secret_id = "usai-nlrb-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "nlrb"
+  api_key  = data.aws_secretsmanager_secret_version.nlrb_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.nlrb_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "nlrb" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.nlrb }
+
+  tenant               = "nlrb"
+  notification_channel = var.notification_channel
+}
+
 # ---- opm -------------------------------------------------------------------
 provider "aws" {
   alias   = "opm"
@@ -893,4 +965,3 @@ module "eeoc" {
   tenant               = "eeoc"
   notification_channel = var.notification_channel
 }
-

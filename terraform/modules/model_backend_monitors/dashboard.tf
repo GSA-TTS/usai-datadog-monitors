@@ -11,8 +11,8 @@
 # its own dashboard authed through that org's datadog provider.
 
 resource "datadog_dashboard" "model_backend" {
-  title       = "[${var.tenant}] Model Backend Health — Bedrock + Azure OpenAI"
-  description = "Triage view for model-backend incidents (see the 2026-06-02 GSA incident). Bedrock metrics + Azure OpenAI log signals correlated. Managed by Terraform."
+  title       = "[${var.tenant}] Model Backend Health — Bedrock + Azure OpenAI + Vertex AI"
+  description = "Triage view for model-backend incidents. Bedrock metrics + Azure OpenAI and Vertex AI log signals correlated. Managed by Terraform."
   layout_type = "ordered"
   reflow_type = "auto"
 
@@ -153,6 +153,33 @@ resource "datadog_dashboard" "model_backend" {
         log_query {
           index        = "*"
           search_query = "service:(api OR api-beta) env:production \"Internal Server Error\""
+          compute_query {
+            aggregation = "count"
+          }
+        }
+      }
+    }
+  }
+
+  # ---- Section: Google Vertex AI --------------------------------------------
+  widget {
+    note_definition {
+      content          = "## Google Vertex AI\nRESOURCE_EXHAUSTED errors indicate a model quota or capacity limit. This log signal complements Bedrock's AWS metrics and Azure OpenAI's application-log signals."
+      background_color = "orange"
+      font_size        = "14"
+      text_align       = "left"
+      show_tick        = false
+    }
+  }
+
+  widget {
+    timeseries_definition {
+      title = "Vertex AI - Resource Exhausted errors (production logs)"
+      request {
+        display_type = "bars"
+        log_query {
+          index        = "*"
+          search_query = "env:production \"Resource exhausted\""
           compute_query {
             aggregation = "count"
           }

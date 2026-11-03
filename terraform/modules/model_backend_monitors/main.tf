@@ -375,3 +375,47 @@ resource "datadog_monitor" "azure_openai_stream_aborted" {
 
   tags = concat(local.base_tags, ["service:api", "provider:azure-openai"])
 }
+
+# ---------------------------------------------------------------------------
+# Google Vertex AI (application log alert for RESOURCE_EXHAUSTED / HTTP 429)
+# ---------------------------------------------------------------------------
+
+resource "datadog_monitor" "vertex_ai_resource_exhausted" {
+  count = local.alert_count
+
+  name = "[${var.tenant}] Vertex AI - Resource Exhausted (429)"
+  type = "log alert"
+
+  # Match the distinctive message emitted by Vertex AI for quota exhaustion.
+  # Do not constrain service here: model requests can originate from different
+  # app services, and this message is the provider-specific signal of interest.
+  query = "logs(\"env:production \\\"Resource exhausted\\\"\").index(\"*\").rollup(\"count\").last(\"5m\") > 3"
+
+  message = <<-EOT
+    {{#is_alert}}
+    Vertex AI is returning RESOURCE_EXHAUSTED errors for ${var.tenant} — more than 3 matching errors in the last 5 minutes. This usually indicates a quota or capacity limit. Check the Vertex AI quota and model/region capacity, then reduce or shift request load as needed.
+    ${var.notification_channel}
+    {{/is_alert}}
+    {{#is_warning}}
+    Vertex AI has returned at least one RESOURCE_EXHAUSTED error for ${var.tenant} in the last 5 minutes. Informational warning; no page.
+    {{/is_warning}}
+    {{#is_alert_recovery}}
+    Recovered: Vertex AI RESOURCE_EXHAUSTED errors for ${var.tenant} are back below the alert threshold.
+    ${var.notification_channel}
+    {{/is_alert_recovery}}
+
+    Tenant: ${var.tenant} @ Query: env:production "Resource exhausted"
+  EOT
+
+  monitor_thresholds {
+    critical = 3
+    warning  = 1
+  }
+
+  include_tags           = false
+  notify_audit           = false
+  on_missing_data        = "default"
+  groupby_simple_monitor = false
+
+  tags = concat(local.base_tags, ["provider:vertex-ai", "signal:resource-exhausted"])
+}
