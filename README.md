@@ -26,7 +26,8 @@ Only resources **not** already managed by FCS Terraform (tagged `MCaaS - Managed
 
 - Bedrock monitors (3 metric alerts) — **rolled out per-tenant** to every enabled org
 - Azure OpenAI monitors (2 log alerts) — **rolled out per-tenant** to every enabled org
-- Model-backend dashboard (Bedrock + Azure OpenAI triage view) — **rolled out per-tenant** to every enabled org
+- Vertex AI resource-exhausted monitor (1 log alert) — **rolled out per-tenant** to every enabled org
+- Model-backend dashboard (Bedrock + Azure OpenAI + Vertex AI triage view) — **rolled out per-tenant** to every enabled org
 - Infrastructure-health monitors (2 log alerts: istio mTLS cert-signing, dd-trace agent telemetry-send) — **rolled out per-tenant** to every enabled org
 - App Health / Edge / Datadog-usage dashboards — **rolled out per-tenant** to every enabled org
 - RUM application (1 browser app) — **rolled out per-tenant** to every enabled org (see below)
@@ -70,12 +71,19 @@ app logs, which is why the AWS-side and Azure-side failures were hard to correla
 | `azure_openai_throttling` | `"Too Many Requests"` (429) from api service | >3 in 5m |
 | `azure_openai_stream_aborted` | `"Stream aborted mid-flight"` (user-visible symptom) | >3 in 5m |
 
+### Vertex AI monitor
+
+The per-tenant `vertex_ai_resource_exhausted` log alert watches production logs
+for Vertex AI's `"Resource exhausted"` quota/capacity error and triggers above 3
+matching events in 5 minutes. The model-backend dashboard includes the same log
+signal for triage.
+
 ## Multi-Tenant Layout
 
-The model-backend monitors (Bedrock + Azure OpenAI) are rolled out to **every USAi
+The model-backend monitors (Bedrock + Azure OpenAI + Vertex AI) are rolled out to **every USAi
 tenant org**, each of which is a separate Datadog org under `ddog-gov.com`.
 
-- `modules/model_backend_monitors/` — the 6 model-backend monitors, parameterized
+- `modules/model_backend_monitors/` — the model-backend monitors, parameterized
   by tenant (names prefixed `[tenant]`, tagged `tenant:<slug>`).
 - `tenants.tf` — one block per tenant: an `aws` provider alias (the tenant's SSO
   profile) → Secrets Manager data sources for that org's DD api/app keys → a
