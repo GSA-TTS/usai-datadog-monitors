@@ -214,6 +214,10 @@ module "frtib" {
 
   tenant               = "frtib"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: testing reachability from aws:us-gov-west-1
+  # for issue 1530 (API health check deployment). If blocked by WAF,
+  # will be moved to WAF-unreachable list and this flag will be removed.
+  enable_edge_synthetics = true
 }
 
 # ---- nrc ------------------------------------------------------------------
@@ -699,6 +703,10 @@ module "nlrb" {
 
   tenant               = "nlrb"
   notification_channel = var.notification_channel
+  # Edge synthetics ON: testing reachability from aws:us-gov-west-1
+  # for issue 1530 (API health check deployment). If blocked by WAF,
+  # will be moved to WAF-unreachable list and this flag will be removed.
+  enable_edge_synthetics = true
 }
 
 # ---- opm -------------------------------------------------------------------
