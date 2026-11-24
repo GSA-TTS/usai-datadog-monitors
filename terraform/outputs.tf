@@ -29,5 +29,6 @@ output "rum_credentials" {
     usda     = { application_id = module.usda.rum_application_id, client_token = module.usda.rum_client_token }
     nsf      = { application_id = module.nsf.rum_application_id, client_token = module.nsf.rum_client_token }
     eeoc     = { application_id = module.eeoc.rum_application_id, client_token = module.eeoc.rum_client_token }
+    usitc    = { application_id = module.usitc.rum_application_id, client_token = module.usitc.rum_client_token }
   }
 }

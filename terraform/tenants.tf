@@ -965,3 +965,47 @@ module "eeoc" {
   tenant               = "eeoc"
   notification_channel = var.notification_channel
 }
+
+# ---- usitc -------------------------------------------------------------------
+# FCS-PENDING: USITC's AWS account has not been provisioned yet (FCS New
+# Tenant Request pending as of 2026-11-24). This provider block assumes an
+# `aws-sso` profile named "usitc" exists locally and that the secrets below
+# exist in that account, tagged Environment=production (see
+# tenants.pending.md -- that tag is required for the Tenant_Aigov_Tech_Lead
+# role to read them). Neither is true yet. Do NOT run `terraform apply`
+# against this block until both exist.
+#
+# enable_edge_synthetics is left at its default (false) per variables.tf:
+# reachability from the Datadog aws:us-gov-west-1 location is a per-tenant
+# property that must be verified live (not via laptop curl) before enabling.
+provider "aws" {
+  alias   = "usitc"
+  region  = "us-east-1"
+  profile = "usitc"
+}
+
+data "aws_secretsmanager_secret_version" "usitc_api" {
+  provider  = aws.usitc
+  secret_id = "usai-usitc-shared-dd-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "usitc_app" {
+  provider  = aws.usitc
+  secret_id = "usai-usitc-shared-dd-app-key"
+}
+
+provider "datadog" {
+  alias    = "usitc"
+  api_key  = data.aws_secretsmanager_secret_version.usitc_api.secret_string
+  app_key  = data.aws_secretsmanager_secret_version.usitc_app.secret_string
+  api_url  = "https://api.ddog-gov.com/"
+  validate = true
+}
+
+module "usitc" {
+  source    = "./modules/model_backend_monitors"
+  providers = { datadog = datadog.usitc }
+
+  tenant               = "usitc"
+  notification_channel = var.notification_channel
+}
