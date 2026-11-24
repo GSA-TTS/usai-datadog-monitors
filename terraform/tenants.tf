@@ -110,39 +110,6 @@ module "doj" {
   notification_channel = var.notification_channel
 }
 
-# ---- faa ------------------------------------------------------------------
-provider "aws" {
-  alias   = "faa"
-  region  = "us-east-1"
-  profile = "faa"
-}
-
-data "aws_secretsmanager_secret_version" "faa_api" {
-  provider  = aws.faa
-  secret_id = "usai-faa-shared-dd-api-key"
-}
-
-data "aws_secretsmanager_secret_version" "faa_app" {
-  provider  = aws.faa
-  secret_id = "usai-faa-shared-dd-app-key"
-}
-
-provider "datadog" {
-  alias    = "faa"
-  api_key  = data.aws_secretsmanager_secret_version.faa_api.secret_string
-  app_key  = data.aws_secretsmanager_secret_version.faa_app.secret_string
-  api_url  = "https://api.ddog-gov.com/"
-  validate = true
-}
-
-module "faa" {
-  source    = "./modules/model_backend_monitors"
-  providers = { datadog = datadog.faa }
-
-  tenant               = "faa"
-  notification_channel = var.notification_channel
-}
-
 # ---- ftc ------------------------------------------------------------------
 provider "aws" {
   alias   = "ftc"
@@ -181,40 +148,6 @@ module "ftc" {
   enable_edge_synthetics = true
 }
 
-# ---- frtib ----------------------------------------------------------------
-# Restored from the existing shared Terraform state, which tracks FRTIB's
-# resources under this provider alias.
-provider "aws" {
-  alias   = "frtib"
-  region  = "us-east-1"
-  profile = "frtib"
-}
-
-data "aws_secretsmanager_secret_version" "frtib_api" {
-  provider  = aws.frtib
-  secret_id = "usai-frtib-shared-dd-api-key"
-}
-
-data "aws_secretsmanager_secret_version" "frtib_app" {
-  provider  = aws.frtib
-  secret_id = "usai-frtib-shared-dd-app-key"
-}
-
-provider "datadog" {
-  alias    = "frtib"
-  api_key  = data.aws_secretsmanager_secret_version.frtib_api.secret_string
-  app_key  = data.aws_secretsmanager_secret_version.frtib_app.secret_string
-  api_url  = "https://api.ddog-gov.com/"
-  validate = true
-}
-
-module "frtib" {
-  source    = "./modules/model_backend_monitors"
-  providers = { datadog = datadog.frtib }
-
-  tenant               = "frtib"
-  notification_channel = var.notification_channel
-}
 
 # ---- nrc ------------------------------------------------------------------
 provider "aws" {
@@ -282,41 +215,7 @@ module "ntsb" {
   notification_channel = var.notification_channel
 }
 
-# ---- oge ------------------------------------------------------------------
-provider "aws" {
-  alias   = "oge"
-  region  = "us-east-1"
-  profile = "oge"
-}
 
-data "aws_secretsmanager_secret_version" "oge_api" {
-  provider  = aws.oge
-  secret_id = "usai-oge-shared-dd-api-key"
-}
-
-data "aws_secretsmanager_secret_version" "oge_app" {
-  provider  = aws.oge
-  secret_id = "usai-oge-shared-dd-app-key"
-}
-
-provider "datadog" {
-  alias    = "oge"
-  api_key  = data.aws_secretsmanager_secret_version.oge_api.secret_string
-  app_key  = data.aws_secretsmanager_secret_version.oge_app.secret_string
-  api_url  = "https://api.ddog-gov.com/"
-  validate = true
-}
-
-module "oge" {
-  source    = "./modules/model_backend_monitors"
-  providers = { datadog = datadog.oge }
-
-  tenant               = "oge"
-  notification_channel = var.notification_channel
-
-  # Retire monitors/synthetics; keep RUM and dashboards for residual-usage visibility.
-  enable_alerting = false
-}
 
 # ---- doc -------------------------------------------------------------------
 provider "aws" {
@@ -546,47 +445,7 @@ module "gsa" {
   enable_edge_synthetics = true
 }
 
-# ---- hhs -------------------------------------------------------------------
-provider "aws" {
-  alias   = "hhs"
-  region  = "us-east-1"
-  profile = "hhs"
-}
 
-data "aws_secretsmanager_secret_version" "hhs_api" {
-  provider  = aws.hhs
-  secret_id = "usai-hhs-shared-dd-api-key"
-}
-
-data "aws_secretsmanager_secret_version" "hhs_app" {
-  provider  = aws.hhs
-  secret_id = "usai-hhs-shared-dd-app-key"
-}
-
-provider "datadog" {
-  alias    = "hhs"
-  api_key  = data.aws_secretsmanager_secret_version.hhs_api.secret_string
-  app_key  = data.aws_secretsmanager_secret_version.hhs_app.secret_string
-  api_url  = "https://api.ddog-gov.com/"
-  validate = true
-}
-
-module "hhs" {
-  source    = "./modules/model_backend_monitors"
-  providers = { datadog = datadog.hhs }
-
-  tenant               = "hhs"
-  notification_channel = var.notification_channel
-
-  # Retire monitors/synthetics; keep RUM and dashboards for residual-usage visibility.
-  enable_alerting = false
-
-  # Edge synthetics ON: hhs is verified reachable from the Datadog
-  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
-  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
-  # are deliberately left off.
-  enable_edge_synthetics = true
-}
 
 # ---- hud -------------------------------------------------------------------
 provider "aws" {
@@ -699,48 +558,9 @@ module "nlrb" {
 
   tenant               = "nlrb"
   notification_channel = var.notification_channel
-}
-
-# ---- opm -------------------------------------------------------------------
-provider "aws" {
-  alias   = "opm"
-  region  = "us-east-1"
-  profile = "opm"
-}
-
-data "aws_secretsmanager_secret_version" "opm_api" {
-  provider  = aws.opm
-  secret_id = "usai-opm-shared-dd-api-key"
-}
-
-data "aws_secretsmanager_secret_version" "opm_app" {
-  provider  = aws.opm
-  secret_id = "usai-opm-shared-dd-app-key"
-}
-
-provider "datadog" {
-  alias    = "opm"
-  api_key  = data.aws_secretsmanager_secret_version.opm_api.secret_string
-  app_key  = data.aws_secretsmanager_secret_version.opm_app.secret_string
-  api_url  = "https://api.ddog-gov.com/"
-  validate = true
-}
-
-module "opm" {
-  source    = "./modules/model_backend_monitors"
-  providers = { datadog = datadog.opm }
-
-  tenant               = "opm"
-  notification_channel = var.notification_channel
-
-  # Retire monitors/synthetics; keep RUM and dashboards for residual-usage visibility.
-  # Root-module aigov SCIM monitoring still includes the `opm` Keycloak realm.
-  enable_alerting = false
-
-  # Edge synthetics ON: opm is verified reachable from the Datadog
-  # `aws:us-gov-west-1` location (2026-08-18). See the per-tenant reachability
-  # table in cert_monitors.tf — 8 sibling tenants time out from that location and
-  # are deliberately left off.
+  # Edge synthetics ON: testing reachability from aws:us-gov-west-1
+  # for issue 1530 (API health check deployment). If blocked by WAF,
+  # will be moved to WAF-unreachable list and this flag will be removed.
   enable_edge_synthetics = true
 }
 
@@ -902,7 +722,7 @@ module "usda" {
 provider "aws" {
   alias   = "nsf"
   region  = "us-east-1"
-  profile = "aigov-nsf"
+  profile = "nsf"
 }
 
 data "aws_secretsmanager_secret_version" "nsf_api" {
@@ -931,37 +751,4 @@ module "nsf" {
   notification_channel = var.notification_channel
 }
 
-# ---- eeoc -------------------------------------------------------------------
-# Sub-account under aigov (like doli): SSO profile is aigov-eeoc, but the DD
-# secrets keep the standard usai- prefix (unlike doli's bare names).
-provider "aws" {
-  alias   = "eeoc"
-  region  = "us-east-1"
-  profile = "aigov-eeoc"
-}
 
-data "aws_secretsmanager_secret_version" "eeoc_api" {
-  provider  = aws.eeoc
-  secret_id = "usai-eeoc-shared-dd-api-key"
-}
-
-data "aws_secretsmanager_secret_version" "eeoc_app" {
-  provider  = aws.eeoc
-  secret_id = "usai-eeoc-shared-dd-app-key"
-}
-
-provider "datadog" {
-  alias    = "eeoc"
-  api_key  = data.aws_secretsmanager_secret_version.eeoc_api.secret_string
-  app_key  = data.aws_secretsmanager_secret_version.eeoc_app.secret_string
-  api_url  = "https://api.ddog-gov.com/"
-  validate = true
-}
-
-module "eeoc" {
-  source    = "./modules/model_backend_monitors"
-  providers = { datadog = datadog.eeoc }
-
-  tenant               = "eeoc"
-  notification_channel = var.notification_channel
-}

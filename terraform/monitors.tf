@@ -338,7 +338,7 @@ locals {
   # 2026-09-09. doc/sss/ncua have never sent a SCIM request; their monitors sit in
   # OK via on_missing_data and cost nothing, but mean a newly-wired IdP is covered
   # from its first request rather than after the next outage.
-  scim_realms = ["ed", "ntsb", "faa", "doj", "ncua", "doc", "sss", "opm"]
+  scim_realms = ["ed", "ntsb", "doj", "ncua", "doc", "sss"]
 }
 
 resource "datadog_monitor" "scim_provisioning_failing" {
