@@ -61,9 +61,10 @@
 # in OK. Both positions were wrong, in opposite directions. The measured truth:
 #
 #   REACHABILITY FROM aws:us-gov-west-1 IS PER-TENANT.
-#     reachable (15): doc doi dot ed fhfa ftc gsa hhs hud ncua opm pc sss
-#                     stateoig usda
-#     TIMES OUT  (8): dnfsb doj faa nrc ntsb oge nsf eeoc
+#     reachable (9): doc doi dot ed fhfa ftc gsa hud ncua pc sss
+#                    stateoig usda
+#     TIMES OUT  (7): dnfsb doj nrc ntsb nsf
+#     OFFBOARDED (8): ang disa/jitc eeoc faa frtib hhs opm oge
 #
 # The 8 fail with "The request couldn't be completed in a reasonable time" — no
 # status code, no TLS error — on the apex AND console, for health, cert and reach

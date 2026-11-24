@@ -7,53 +7,40 @@ the secrets to carry the `Environment=production` tag (the
 `FCS_IDC_CMP_Tenant_TechLeads` IAM policy only grants `secretsmanager:*` on
 resources tagged `Environment in [prod, production]`).
 
-## Enabled (23) — secrets readable, wired in `tenants.tf`
+## Enabled (12) — secrets readable, wired in `tenants.tf`
 
-dnfsb, doc, doi, doj, dot, ed, eeoc, faa, fhfa, ftc, gsa, hhs, hud, ncua,
-nrc, nsf, ntsb, opm, oge, pc, sss, stateoig, usda
+dnfsb, doc, doi, doj, dot, ed, fhfa, ftc, gsa, hud, ncua, nrc, ntsb, pc, sss, stateoig, usda
 
-(Original 7 enabled 2026-06-10; remaining 16 unblocked 2026-07-09 after FCS
-applied tagging to all USAi agencies. nsf + eeoc onboarded 2026-07-25 — PR #32;
-this list had not been updated for them, corrected here.)
+(Original 7 enabled 2026-06-10; remaining tenants unblocked 2026-07-09 after FCS
+applied tagging to all USAi agencies. nsf + eeoc onboarded 2026-07-25 — PR #32.
+Offboarding: ang, disa/jitc, eeoc, faa, frtib removed 2026-11-24; hhs, opm, oge removed 2026-11-24 — PR #XX.)
 
 Note non-standard secret names / profiles:
-- Most new tenants → `usai-<tenant>-shared-dd-*` (not `<tenant>-shared-dd-*`)
+- Most tenants → `usai-<tenant>-shared-dd-*` (not `<tenant>-shared-dd-*`)
 
-## Alerting retired (3) — RUM and dashboards retained
+## Offboarded (8) — secrets access lost, resources removed
 
-oge, hhs, opm
+ang, disa/jitc, eeoc, faa, frtib, hhs, opm, oge
 
-These tenants stay wired in `tenants.tf`, but set `enable_alerting = false`.
-Terraform destroys their per-tenant monitors and synthetics while keeping their
-RUM applications and dashboards, so residual traffic remains visible.
+These tenants were offboarded 2026-11-24. All provider aliases, data sources,
+modules, and RUM credentials have been removed from `tenants.tf` and `outputs.tf`.
+The faa and eeoc Keycloak realms were also removed from the `scim_realms` list in aigov
+monitoring.
 
-Root-module aigov SCIM monitoring still includes the `opm` realm because it
-targets shared Keycloak, not the opm Datadog org.
+Terraform will destroy their live Datadog resources (monitors, synthetics,
+dashboards, RUM apps) when applied.
 
-## Removed from Terraform management — secret access lost (2)
+## Removed from Terraform management — secret access lost (1)
 
-ang, doli
+doli
 
-`ang` and `doli` were removed from `tenants.tf` after the DevOps/SRE role lost
-`secretsmanager:GetSecretValue` access to their Datadog API/app-key secrets.
-Terraform cannot configure those tenants' Datadog providers without the keys, so
-it cannot destroy or update their live Datadog resources. Remove their existing
+`doli` was removed from `tenants.tf` after the DevOps/SRE role lost
+`secretsmanager:GetSecretValue` access to Datadog API/app-key secrets.
+Terraform cannot configure that tenant's Datadog provider without the keys, so
+it cannot destroy or update live Datadog resources. Remove existing
 objects from Terraform state with `terraform state rm` (state-only) when applying
-this change; any live Datadog resources in those orgs are then orphaned and must
+this change; any live Datadog resources in that org are then orphaned and must
 be cleaned up manually if needed.
-
-## aigov — wired (no model_backend module)
-
-aigov is the shared account and does NOT get the standard per-tenant
-`model_backend_monitors` module. It IS wired in `tenants.tf` (aws.aigov +
-datadog.aigov provider aliases) for its Keycloak-only assets — see below.
-
-## Blocked — gsai (KMS)
-
-gsai secrets are listable but `GetSecretValue` returns
-`AccessDeniedException: Access to KMS is not allowed`. The secret exists
-(`gsai-shared-dd-api-key` / `gsai-shared-dd-app-key`) but the KMS key policy
-doesn't grant decrypt to our role.
 
 ## No SSO access — disa
 
