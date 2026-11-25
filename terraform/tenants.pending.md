@@ -19,14 +19,13 @@ this list had not been updated for them, corrected here.)
 Note non-standard secret names / profiles:
 - Most new tenants → `usai-<tenant>-shared-dd-*` (not `<tenant>-shared-dd-*`)
 
-## Wired but blocked — usitc (FCS-PENDING)
+## Wired but blocked — usitc
 
 usitc is wired in `tenants.tf` (module + provider aliases + secret data
-sources) but the AWS account does not exist yet — the FCS New Tenant Request
-is still pending as of 2026-11-24. `terraform plan`/`apply` will fail on this
-block until:
-1. The `mcaas-usai-usitc-prod` account is provisioned and an `usitc` AWS SSO
-   profile exists locally.
+sources). The `mcaas-usai-usitc-prod` AWS account (703235209528) was
+provisioned by FCS on 2026-11-24. `terraform plan`/`apply` will still fail
+on this block until:
+1. A local `usitc` AWS SSO profile exists for that account.
 2. `usai-usitc-shared-dd-api-key` / `usai-usitc-shared-dd-app-key` exist in
    that account, tagged `Environment=production` (same precondition as every
    tenant in the Enabled list above).

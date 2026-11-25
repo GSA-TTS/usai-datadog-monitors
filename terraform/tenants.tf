@@ -967,13 +967,14 @@ module "eeoc" {
 }
 
 # ---- usitc -------------------------------------------------------------------
-# FCS-PENDING: USITC's AWS account has not been provisioned yet (FCS New
-# Tenant Request pending as of 2026-11-24). This provider block assumes an
+# USITC's AWS account (703235209528) was provisioned by FCS on 2026-11-24.
+# Still blocked on a separate precondition: this provider block assumes an
 # `aws-sso` profile named "usitc" exists locally and that the secrets below
 # exist in that account, tagged Environment=production (see
 # tenants.pending.md -- that tag is required for the Tenant_Aigov_Tech_Lead
-# role to read them). Neither is true yet. Do NOT run `terraform apply`
-# against this block until both exist.
+# role to read them). Neither the local SSO profile nor the tagged secrets
+# are confirmed yet. Do NOT run `terraform apply` against this block until
+# both exist.
 #
 # enable_edge_synthetics is left at its default (false) per variables.tf:
 # reachability from the Datadog aws:us-gov-west-1 location is a per-tenant
